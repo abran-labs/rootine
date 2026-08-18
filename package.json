@@ -10,8 +10,12 @@
     "build": "bun build src/index.ts --target=bun --format=esm --outdir dist",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run build",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run check"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@clack/prompts": "^1.7.0"
   },

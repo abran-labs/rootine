@@ -10,19 +10,19 @@ No plugin APIs, no password storage, no custom dialogs.
 ## Install
 
 ```sh
-bun add -g rootine     # or: bunx rootine
-rootine setup          # interactive: mode, wrappers, agent prompts
+curl -fsSL https://github.com/abran-labs/rootine/raw/main/install.sh | bash
 ```
 
-`bun add -g` auto-starts the interactive setup after install (postinstall). Skip it with
-`ROOTINE_SKIP_ONBOARD=1` — useful for scripts and `bunx`.
+One command: downloads the compiled binary for your architecture (x64/arm64), verifies
+its checksum, installs to `~/.local/bin/rootine`, and starts the interactive setup.
+`ROOTINE_VERSION=v0.1.0` pins a release; `ROOTINE_NO_ONBOARD=1` skips the auto-started setup.
 
 Requires: Linux, polkit (`polkitd` + a session agent), sudo. Anything missing is
 installed for you: setup runs the package-manager command through sudo in the same terminal
 (inline password prompt), enables polkitd, installs a polkit agent matching your desktop, and
 enables it — hyprpolkitagent via its systemd user unit (`systemctl --user enable --now
 hyprpolkitagent.service`, persists across sessions and survives crashes), other agents started
-detached. From `bun add -g rootine` to fully configured, you never leave the terminal.
+detached. From install to fully configured, you never leave the terminal.
 
 ## Modes
 

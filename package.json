@@ -3,21 +3,13 @@
   "version": "0.1.0",
   "description": "Linux-only thin polkit wrapper: one px command, one polkit rule, one agent prompt. Pick always-allow, review, or always-ask.",
   "type": "module",
-  "bin": {
-    "rootine": "dist/index.js"
-  },
   "scripts": {
     "build": "bun build src/index.ts --target=bun --format=esm --outdir dist",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run build",
     "test": "bun test",
-    "prepublishOnly": "bun run check",
-    "postinstall": "bun scripts/postinstall.ts"
+    "release": "sh scripts/build-release.sh"
   },
-  "files": [
-    "dist",
-    "scripts/postinstall.ts"
-  ],
   "dependencies": {
     "@clack/prompts": "^1.7.0"
   },

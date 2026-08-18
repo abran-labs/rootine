@@ -30,7 +30,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const config: RootineConfig = { version: 1, mode: options.mode }
   const promptSection = agentPrompt(config.mode)
   const needsSudoers = config.mode !== "always-ask"
-  if (needsSudoers && report.sudo === undefined) throw new RootineSetupError("sudo is required for py-based modes (review, always-allow)")
+  if (needsSudoers && report.sudo === undefined) throw new RootineSetupError("sudo is required for sx-based modes (review, always-allow)")
   const sudoersSource = needsSudoers ? sudoersFileSource(username) : undefined
   const current = await readConfig(options.paths.configFile)
   const sudoersChanged = await sudoersStateChanged(options.paths.sudoersFile, sudoersSource)
@@ -40,7 +40,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const summary = [
     `mode: ${config.mode}`,
     ...(dialogWrapperChanged ? ["wrapper: install ~/.local/bin/px (dialog)"] : ["wrapper px: unchanged"]),
-    ...(silentWrapperChanged ? ["wrapper: install ~/.local/bin/py (silent)"] : needsSudoers ? ["wrapper py: unchanged"] : ["wrapper py: remove if present"]),
+    ...(silentWrapperChanged ? ["wrapper: install ~/.local/bin/sx (silent)"] : needsSudoers ? ["wrapper sx: unchanged"] : ["wrapper sx: remove if present"]),
     ...(sudoersChanged ? [sudoersSource === undefined ? "sudoers: remove" : "sudoers: install (one approval dialog)"] : ["sudoers: unchanged"]),
     ...(promptChanges[0]?.changed === true ? ["prompt: OpenCode AGENTS.md updated"] : []),
     ...(promptChanges[1]?.changed === true ? ["prompt: Claude CLAUDE.md updated"] : []),
@@ -109,7 +109,7 @@ async function applySudoers(options: SetupOptions, source: string): Promise<void
 }
 
 export async function runUninstall(options: { readonly paths: RootinePaths; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
-  const confirmed = await options.confirm(["remove wrappers px and py", "remove sudoers entry (one approval dialog)", "remove agent prompt sections", "remove rootine config"])
+  const confirmed = await options.confirm(["remove wrappers px and sx", "remove sudoers entry (one approval dialog)", "remove agent prompt sections", "remove rootine config"])
   if (!confirmed) return { status: "cancelled", changes: [] }
   const changes: string[] = []
   for (const wrapper of [options.paths.dialogWrapperFile, options.paths.silentWrapperFile]) {

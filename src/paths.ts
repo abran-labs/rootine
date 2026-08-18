@@ -19,7 +19,7 @@ export function rootinePaths(environment: Readonly<Record<string, string | undef
     configFile: join(configHome, "rootine", "config.json"),
     wrapperDir,
     dialogWrapperFile: join(wrapperDir, "px"),
-    silentWrapperFile: join(wrapperDir, "py"),
+    silentWrapperFile: join(wrapperDir, "sx"),
     sudoersFile: "/etc/sudoers.d/10-rootine",
     opencodeAgentFile: join(configHome, "opencode", "AGENTS.md"),
     claudeAgentFile: join(home, ".claude", "CLAUDE.md"),

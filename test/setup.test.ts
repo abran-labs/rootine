@@ -24,7 +24,7 @@ function paths(root: string): RootinePaths {
     configFile: join(root, "config", "rootine", "config.json"),
     wrapperDir: join(root, "bin"),
     dialogWrapperFile: join(root, "bin", "px"),
-    silentWrapperFile: join(root, "bin", "py"),
+    silentWrapperFile: join(root, "bin", "sx"),
     sudoersFile: join(root, "10-rootine"),
     opencodeAgentFile: join(root, "config", "opencode", "AGENTS.md"),
     claudeAgentFile: join(root, "home", ".claude", "CLAUDE.md"),
@@ -65,7 +65,7 @@ describe("rootine setup", () => {
 
     expect(result.status).toBe("applied")
     expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec --disable-internal-agent")
-    expect(await readFile(join(root, "bin", "py"), "utf8")).toContain("exec sudo --")
+    expect(await readFile(join(root, "bin", "sx"), "utf8")).toContain("exec sudo --")
     expect(JSON.parse(await readFile(join(root, "config", "rootine", "config.json"), "utf8")).mode).toBe("review")
     expect(await readFile(join(root, "config", "opencode", "AGENTS.md"), "utf8")).toContain("sensitive or destructive")
     expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("routine and safe")
@@ -77,17 +77,17 @@ describe("rootine setup", () => {
     expect(install?.command.endsWith("px")).toBe(true)
   })
 
-  test("always-ask installs only px, no py and no sudoers", async () => {
+  test("always-ask installs only px, no sx and no sudoers", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)
     const fake = fakeRun()
     await runSetup(options(root, "always-ask", fake))
     expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec")
-    expect(await Bun.file(join(root, "bin", "py")).exists()).toBe(false)
+    expect(await Bun.file(join(root, "bin", "sx")).exists()).toBe(false)
     expect(fake.calls.some((call) => call.args[0] === "/usr/bin/visudo")).toBe(false)
   })
 
-  test("switching from always-allow to always-ask removes py and the sudoers entry", async () => {
+  test("switching from always-allow to always-ask removes sx and the sudoers entry", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)
     const fake = fakeRun()
@@ -95,7 +95,7 @@ describe("rootine setup", () => {
     await Bun.write(paths(root).sudoersFile, "stale entry\n")
     const result = await runSetup(options(root, "always-ask", fake))
     expect(result.status).toBe("applied")
-    expect(await Bun.file(join(root, "bin", "py")).exists()).toBe(false)
+    expect(await Bun.file(join(root, "bin", "sx")).exists()).toBe(false)
     expect(fake.calls.some((call) => call.args[0] === "/usr/bin/rm" && call.args.includes(paths(root).sudoersFile))).toBe(true)
   })
 

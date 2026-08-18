@@ -11,8 +11,8 @@ const HELP = `Usage:
   rootine uninstall [--yes]
 
 Modes:
-  always-allow  py runs everything as root, no dialog ever
-  review        py for routine safe commands, px (dialog) for sensitive ones
+  always-allow  sx runs everything as root, no dialog ever
+  review        sx for routine safe commands, px (dialog) for sensitive ones
   always-ask    px only; every privileged command shows the approval dialog
 `
 
@@ -106,8 +106,8 @@ async function selectMode(): Promise<Mode | undefined> {
   const answer = await select({
     message: "Choose the privileged-command mode",
     options: [
-      { value: "always-allow", label: "always-allow — py runs everything as root, no dialog", hint: "yolo" },
-      { value: "review", label: "review — py for routine safe commands, px (dialog) for sensitive ones" },
+      { value: "always-allow", label: "always-allow — sx runs everything as root, no dialog", hint: "yolo" },
+      { value: "review", label: "review — sx for routine safe commands, px (dialog) for sensitive ones" },
       { value: "always-ask", label: "always-ask — px only; every privileged command asks" },
     ],
   })
@@ -130,7 +130,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
     `polkit agent: ${report.polkit.agent ? "detected" : "not detected"}`,
     `sudo: ${report.sudo ?? "missing"}`,
     `wrapper px (dialog): ${dialogOk ? `ready (${paths.dialogWrapperFile})` : "missing or stale"}`,
-    `wrapper py (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,
+    `wrapper sx (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,
     `config: ${config === undefined ? "missing" : `mode=${config.mode}`}`,
     `sudoers entry: ${await sudoers.exists() ? "present" : "absent"}`,
     `problems: ${problems.length === 0 ? "none" : problems.join("; ")}`,
@@ -140,7 +140,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
 }
 
 async function uninstall(paths: RootinePaths, yes: boolean): Promise<number> {
-  const approved = yes || await confirm({ message: "Remove the px/py wrappers, sudoers entry, agent prompt sections, and rootine config?" }) === true
+  const approved = yes || await confirm({ message: "Remove the px/sx wrappers, sudoers entry, agent prompt sections, and rootine config?" }) === true
   if (!approved) return 0
   const result = await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
   return reportResult(result)

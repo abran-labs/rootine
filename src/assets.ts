@@ -1,7 +1,7 @@
 import type { Mode } from "./config"
 
 export const DIALOG_WRAPPER = "px"
-export const SILENT_WRAPPER = "py"
+export const SILENT_WRAPPER = "sx"
 export const SUDOERS_FILE = "/etc/sudoers.d/10-rootine"
 export const PROMPT_MARKER_START = "<!-- PX_START -->"
 export const PROMPT_MARKER_END = "<!-- PX_END -->"
@@ -21,11 +21,11 @@ exec pkexec --disable-internal-agent "$@"
 
 export function silentWrapperScript(): string {
   return `#!/bin/sh
-# py — argv-only privileged runner that never asks (managed by rootine).
+# sx — argv-only privileged runner that never asks (managed by rootine).
 # Silent because of the rootine sudoers entry; there is NO approval dialog.
-# Usage: py EXECUTABLE [ARG...]  (no shell strings, no pipes, no redirection)
+# Usage: sx EXECUTABLE [ARG...]  (no shell strings, no pipes, no redirection)
 if [ $# -lt 1 ]; then
-  echo "usage: py EXECUTABLE [ARG...]" >&2
+  echo "usage: sx EXECUTABLE [ARG...]" >&2
   exit 2
 fi
 exec sudo -- "$@"
@@ -61,10 +61,10 @@ ${PROMPT_MARKER_END}
 function promptForMode(mode: Mode): string {
   switch (mode) {
     case "always-allow":
-      return "- Use `py <exe> [args...]` for everything — no dialog will appear, every call runs as root immediately. The user trusts you with root; use it deliberately."
+      return "- Use `sx <exe> [args...]` for everything — no dialog will appear, every call runs as root immediately. The user trusts you with root; use it deliberately."
     case "review":
       return [
-        "- Use `py <exe> [args...]` when the operation is routine and safe: status checks, reading logs, non-destructive inspection. No dialog appears.",
+        "- Use `sx <exe> [args...]` when the operation is routine and safe: status checks, reading logs, non-destructive inspection. No dialog appears.",
         "- Use `px <exe> [args...]` when the operation is sensitive or destructive — installs, service changes, deletions, firewall/network changes, anything user-visible — so the user must approve the polkit dialog.",
         "- When unsure, use `px`.",
         "- No dialog = no polkit agent in this session; stop and tell the user instead of guessing.",

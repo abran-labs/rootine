@@ -20,7 +20,7 @@ describe("wrappers", () => {
     expect(dialogWrapperScript()).toContain("exit 2")
   })
 
-  test("py never asks and goes through sudo", () => {
+  test("sx never asks and goes through sudo", () => {
     expect(silentWrapperScript()).toContain('exec sudo -- "$@"')
     expect(silentWrapperScript()).toContain("NO approval dialog")
   })
@@ -44,20 +44,20 @@ describe("agent prompt sections", () => {
   test("always-ask routes everything through the dialog wrapper", () => {
     const section = agentPrompt("always-ask")
     expect(section).toContain("`px <exe> [args...]`")
-    expect(section).not.toContain("`py <exe> [args...]`")
+    expect(section).not.toContain("`sx <exe> [args...]`")
     expect(section).toContain("polkit approval dialog")
   })
 
   test("review tells the agent when each wrapper applies", () => {
     const section = agentPrompt("review")
-    expect(section).toContain("Use `py <exe> [args...]` when the operation is routine and safe")
+    expect(section).toContain("Use `sx <exe> [args...]` when the operation is routine and safe")
     expect(section).toContain("Use `px <exe> [args...]` when the operation is sensitive or destructive")
     expect(section).toContain("When unsure, use `px`")
   })
 
   test("always-allow routes everything through the silent wrapper", () => {
     const section = agentPrompt("always-allow")
-    expect(section).toContain("Use `py <exe> [args...]` for everything")
+    expect(section).toContain("Use `sx <exe> [args...]` for everything")
     expect(section).toContain("no dialog will appear")
   })
 })

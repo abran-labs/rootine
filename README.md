@@ -17,8 +17,11 @@ rootine setup          # interactive: mode, wrappers, agent prompts
 `bun add -g` auto-starts the interactive setup after install (postinstall). Skip it with
 `ROOTINE_SKIP_ONBOARD=1` — useful for scripts and `bunx`.
 
-Requires: Linux, polkit (`polkitd` + a session agent), sudo. Missing polkit → setup prints
-the distro install command.
+Requires: Linux, polkit (`polkitd` + a session agent), sudo. Anything missing is
+installed for you: setup runs the package-manager command through sudo in the same terminal
+(inline password prompt), enables polkitd, installs and starts a polkit agent matching your
+desktop, and persists its autostart entry. From `bun add -g rootine` to fully configured,
+you never leave the terminal.
 
 ## Modes
 

@@ -15,6 +15,7 @@ const healthyDeps: RootineDependencyReport = {
   linux: true,
   polkit: { pkexec: "/usr/bin/pkexec", polkitd: true, agent: true, packageManager: "pacman" },
   sudo: "/usr/bin/sudo",
+  desktop: "Hyprland",
 }
 
 type FakeRun = { readonly calls: { command: string; args: readonly string[] }[]; readonly failSudoersInstall: boolean }

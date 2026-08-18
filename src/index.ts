@@ -1,8 +1,8 @@
 import { confirm, intro, outro, select } from "@clack/prompts"
 import { dialogWrapperScript, silentWrapperScript } from "./assets"
 import type { Mode } from "./config"
-import { polkitInstallCommand, polkitProblems, probeDependencies } from "./deps"
-import { defaultWrapperRun, readConfig, runSetup, runUninstall, type SetupResult } from "./install"
+import { polkitProblems, probeDependencies } from "./deps"
+import { defaultWrapperRun, readConfig, remediatePolkit, runSetup, runUninstall, type SetupResult } from "./install"
 import { rootinePaths, type RootinePaths } from "./paths"
 
 const HELP = `Usage:
@@ -54,15 +54,14 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
 }
 
 
-async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>): Promise<number> {
-  const report = await probeDependencies()
-  const problems = polkitProblems(report)
-  if (problems.length > 0) {
-    console.error(`rootine: ${problems.join("; ")}`)
-    const install = polkitInstallCommand(report)
-    if (install !== undefined) console.error(`Install polkit first, then rerun: ${install}`)
-    return 1
-  }
+async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>, environment: Readonly<Record<string, string | undefined>> = process.env): Promise<number> {
+  const report = await remediatePolkit({
+    report: await probeDependencies(environment),
+    environment,
+    confirm: parsed.yes ? async () => true : async (label) => (await confirm({ message: `Polkit is incomplete. Run: ${label}?` })) === true,
+    run: runInherited,
+    log: console.log,
+  })
   const explicit = parsed.mode !== undefined && parsed.yes
   const mode = parsed.mode ?? await selectMode()
   if (mode === undefined) {
@@ -70,16 +69,23 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     return 0
   }
   const result = explicit
-    ? await runSetup({ mode, paths, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log })
-    : await runInteractive(paths, mode)
+    ? await runSetup({ mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log })
+    : await runInteractive(paths, mode, report)
   return reportResult(result)
 }
 
-async function runInteractive(paths: RootinePaths, mode: Mode): Promise<SetupResult> {
+async function runInteractive(paths: RootinePaths, mode: Mode, dependencies: import("./deps").RootineDependencyReport): Promise<SetupResult> {
   intro("rootine setup")
   const approved = await confirm({ message: `Apply this setup? mode: ${mode}` })
   if (approved !== true) return { status: "cancelled", changes: [] }
-  return runSetup({ mode, paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
+  return runSetup({ mode, paths, dependencies, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
+}
+
+function runInherited(command: string, args: readonly string[]): Promise<{ readonly exitCode: number; readonly stderr: string }> {
+  return new Promise((resolve) => {
+    const child = Bun.spawn({ cmd: [command, ...args], stdio: ["inherit", "inherit", "inherit"] })
+    child.exited.then((exitCode) => resolve({ exitCode, stderr: "" }))
+  })
 }
 
 async function selectMode(): Promise<Mode | undefined> {

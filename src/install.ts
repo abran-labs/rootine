@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { userInfo } from "node:os"
 import { agentPrompt, dialogWrapperScript, silentWrapperScript, sudoersFileSource } from "./assets"
 import { parseConfig, type Mode, type RootineConfig } from "./config"
-import { polkitProblems, probeDependencies, type RootineDependencyReport } from "./deps"
+import { polkitProblems, probeDependencies, polkitRemediationSteps, type RootineDependencyReport } from "./deps"
 import { type RootinePaths } from "./paths"
 import { removeAgentPrompt, writeAgentPrompt } from "./tool-writers"
 
@@ -129,6 +129,53 @@ export async function runUninstall(options: { readonly paths: RootinePaths; read
   await rm(dirname(options.paths.configFile), { recursive: true, force: true })
   changes.push("config removed")
   return { status: "applied", changes }
+}
+
+export async function remediatePolkit(input: {
+  readonly report: RootineDependencyReport
+  readonly environment: Readonly<Record<string, string | undefined>>
+  readonly confirm: (label: string) => Promise<boolean>
+  readonly run: (command: string, args: readonly string[]) => Promise<{ readonly exitCode: number; readonly stderr: string }>
+  readonly log: (line: string) => void
+  readonly probe?: (environment: Readonly<Record<string, string | undefined>>) => Promise<RootineDependencyReport>
+}): Promise<RootineDependencyReport> {
+  const probe = input.probe ?? probeDependencies
+  let report = input.report
+  for (;;) {
+    const problems = polkitProblems(report)
+    if (problems.length === 0) return report
+    const steps = polkitRemediationSteps(report, input.environment)
+    if (steps.length === 0) throw new RootineSetupError(`cannot remediate automatically: ${problems.join("; ")}`)
+    const before = JSON.stringify(report)
+    for (const step of steps) {
+      if (!(await input.confirm(step.label))) throw new RootineSetupError(`polkit remediation declined: ${step.label}`)
+      input.log(`-> ${step.label}`)
+      const result = await input.run(step.command, step.args)
+      if (result.exitCode !== 0) throw new RootineSetupError(`${step.label} failed: ${result.stderr.trim() || "see output above"}`)
+      if (step.agentBinary !== undefined) {
+        input.log("-> starting the polkit authentication agent for this session")
+        await input.run("/usr/bin/setsid", ["-f", step.agentBinary])
+      }
+      if (step.autostart !== undefined) {
+        input.log(`-> persisting agent autostart: ${step.autostart.path}`)
+        await persistAutostart(step.autostart.path, step.autostart.line)
+      }
+    }
+    report = await probe(input.environment)
+    if (JSON.stringify(report) === before) throw new RootineSetupError(`polkit remediation made no progress: ${problems.join("; ")}`)
+  }
+}
+
+async function persistAutostart(path: string, line: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  let source = ""
+  try {
+    source = await readFile(path, "utf8")
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+  }
+  if (source.includes(line)) return
+  await writeFile(path, `${source}${source.endsWith("\n") || source === "" ? "" : "\n"}${line}\n`)
 }
 
 export async function readConfig(path: string): Promise<RootineConfig | undefined> {

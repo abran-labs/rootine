@@ -9,29 +9,94 @@ export type RootineDependencyReport = {
   readonly linux: boolean
   readonly polkit: PolkitStatus
   readonly sudo: string | undefined
+  readonly desktop: string
 }
 
-export async function probeDependencies(): Promise<RootineDependencyReport> {
+export type RemediationStep = {
+  readonly label: string
+  readonly command: string
+  readonly args: readonly string[]
+  readonly agentBinary?: string
+  readonly autostart?: { readonly path: string; readonly line: string }
+}
+
+export function polkitRemediationSteps(report: RootineDependencyReport, environment: Readonly<Record<string, string | undefined>> = process.env): readonly RemediationStep[] {
+  if (!report.linux) return []
+  const steps: RemediationStep[] = []
+  if (report.polkit.pkexec === undefined && report.sudo !== undefined) {
+    steps.push({ label: `install polkit (${report.polkit.packageManager})`, command: report.sudo, args: installArgs(report.polkit.packageManager, "polkit") })
+  }
+  if (!report.polkit.polkitd && report.sudo !== undefined) {
+    steps.push({ label: "enable and start polkitd", command: report.sudo, args: ["systemctl", "enable", "--now", "polkit"] })
+  }
+  if (!report.polkit.agent && report.sudo !== undefined) {
+    const agentPackage = agentPackageForDesktop(report.desktop)
+    const agentBinary = agentBinaryForDesktop(report.desktop)
+    if (agentPackage !== undefined) {
+      steps.push({
+        label: `install a polkit authentication agent (${agentPackage})`,
+        command: report.sudo,
+        args: installArgs(report.polkit.packageManager, agentPackage),
+        ...(agentBinary === undefined ? {} : { agentBinary }),
+        ...(autostartForDesktop(report.desktop, environment) === undefined ? {} : { autostart: autostartForDesktop(report.desktop, environment)! }),
+      })
+    }
+  }
+  return steps
+}
+
+export function agentPackageForDesktop(desktop: string): string | undefined {
+  const name = desktop.toLowerCase()
+  if (name.includes("hypr")) return "hyprpolkitagent"
+  if (name.includes("kde") || name.includes("plasma")) return "polkit-kde-agent"
+  if (name.includes("gnome") || name.includes("ubuntu") || name.includes("cinnamon") || name.includes("xfce") || name.includes("mate") || name.includes("budgie") || name.includes("pantheon") || name.includes("unity")) return "polkit-gnome"
+  if (name.includes("sway") || name.includes("river")) return "polkit-gnome"
+  return undefined
+}
+
+function agentBinaryForDesktop(desktop: string): string | undefined {
+  const name = desktop.toLowerCase()
+  if (name.includes("hypr")) return "/usr/bin/hyprpolkitagent"
+  if (name.includes("kde") || name.includes("plasma")) return "/usr/lib/polkit-kde-authentication-agent-1"
+  if (name.includes("gnome") || name.includes("ubuntu") || name.includes("cinnamon") || name.includes("xfce") || name.includes("mate") || name.includes("budgie") || name.includes("pantheon") || name.includes("unity")) return "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+  if (name.includes("sway") || name.includes("river")) return "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+  return undefined
+}
+
+function autostartForDesktop(desktop: string, environment: Readonly<Record<string, string | undefined>>): { readonly path: string; readonly line: string } | undefined {
+  const name = desktop.toLowerCase()
+  if (!name.includes("hypr")) return undefined
+  const home = environment["HOME"]
+  if (home === undefined) return undefined
+  return { path: `${home}/.config/hypr/hyprland.conf`, line: "exec-once = hyprpolkitagent" }
+}
+
+export async function probeDependencies(environment: Readonly<Record<string, string | undefined>> = process.env): Promise<RootineDependencyReport> {
   const [pkexec, agent, polkitd, packageManager, sudo] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager(), Bun.which("sudo")])
   return {
     linux: process.platform === "linux",
     polkit: { pkexec: pkexec ?? undefined, polkitd, agent, packageManager },
     sudo: sudo ?? undefined,
+    desktop: desktopName(environment),
   }
 }
 
-export function polkitInstallCommand(report: RootineDependencyReport): string | undefined {
-  switch (report.polkit.packageManager) {
+function desktopName(environment: Readonly<Record<string, string | undefined>>): string {
+  return environment["XDG_CURRENT_DESKTOP"] ?? environment["WAYLAND_DESKTOP"] ?? environment["XDG_SESSION_DESKTOP"] ?? ""
+}
+
+function installArgs(manager: PolkitStatus["packageManager"], packageName: string): readonly string[] {
+  switch (manager) {
     case "pacman":
-      return "sudo pacman -S --needed polkit"
+      return ["pacman", "-S", "--needed", "--noconfirm", packageName]
     case "apt":
-      return "sudo apt install -y polkitd pkexec"
+      return ["apt", "install", "-y", packageName]
     case "dnf":
-      return "sudo dnf install -y polkit"
+      return ["dnf", "install", "-y", packageName]
     case "zypper":
-      return "sudo zypper install -y polkit"
+      return ["zypper", "--non-interactive", "install", packageName]
     default:
-      return undefined
+      return ["echo", `install ${packageName} with your package manager`]
   }
 }
 

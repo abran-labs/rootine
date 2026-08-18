@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run build",
     "test": "bun test",
-    "release": "sh scripts/build-release.sh"
+    "release": "sh scripts/build-release.sh",
+    "smoke:install": "sh scripts/smoke-install.sh"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0"

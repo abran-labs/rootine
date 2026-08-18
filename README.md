@@ -58,9 +58,16 @@ rootine doctor
 rootine uninstall [--yes]
 ```
 
+`rootine uninstall` removes the wrappers, the sudoers entry, the prompt sections, and the config.
+The compiled binary itself is `~/.local/bin/rootine` — delete it after uninstalling.
+
 ## Development
 
 ```sh
 bun run check   # typecheck + build
 bun test
+bun run release # compiles linux x64/arm64 binaries + SHA256SUMS into dist-bin/
 ```
+
+Releasing: `bun run release`, then `gh release create v0.1.0 dist-bin/rootine-linux-x64
+dist-bin/rootine-linux-arm64 dist-bin/SHA256SUMS`. install.sh fetches from that layout.

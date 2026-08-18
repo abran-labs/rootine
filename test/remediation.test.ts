@@ -31,7 +31,7 @@ describe("polkit remediation", () => {
     expect(calls).toEqual([])
   })
 
-  test("installs polkit, starts polkitd, installs and starts the agent, and persists autostart", async () => {
+  test("installs polkit, starts polkitd, installs the agent, and enables its systemd user unit", async () => {
     const calls: string[] = []
     const environment = { HOME: "/tmp/rootine-remediate-home" }
     const report = await remediatePolkit({
@@ -46,8 +46,8 @@ describe("polkit remediation", () => {
     expect(calls).toContain("/usr/bin/sudo pacman -S --needed --noconfirm polkit")
     expect(calls).toContain("/usr/bin/sudo systemctl enable --now polkit")
     expect(calls).toContain("/usr/bin/sudo pacman -S --needed --noconfirm hyprpolkitagent")
-    expect(calls).toContain("/usr/bin/setsid -f /usr/bin/hyprpolkitagent")
-    expect(await Bun.file(`${environment["HOME"]}/.config/hypr/hyprland.conf`).text()).toContain("exec-once = hyprpolkitagent")
+    expect(calls).toContain("systemctl --user enable --now hyprpolkitagent.service")
+    expect(calls).toContain("systemctl --user enable --now hyprpolkitagent.service")
   })
 
   test("fails when there is nothing left to try", async () => {

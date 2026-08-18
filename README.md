@@ -19,9 +19,10 @@ rootine setup          # interactive: mode, wrappers, agent prompts
 
 Requires: Linux, polkit (`polkitd` + a session agent), sudo. Anything missing is
 installed for you: setup runs the package-manager command through sudo in the same terminal
-(inline password prompt), enables polkitd, installs and starts a polkit agent matching your
-desktop, and persists its autostart entry. From `bun add -g rootine` to fully configured,
-you never leave the terminal.
+(inline password prompt), enables polkitd, installs a polkit agent matching your desktop, and
+enables it — hyprpolkitagent via its systemd user unit (`systemctl --user enable --now
+hyprpolkitagent.service`, persists across sessions and survives crashes), other agents started
+detached. From `bun add -g rootine` to fully configured, you never leave the terminal.
 
 ## Modes
 

@@ -16,11 +16,10 @@ export type RemediationStep = {
   readonly label: string
   readonly command: string
   readonly args: readonly string[]
-  readonly agentBinary?: string
-  readonly autostart?: { readonly path: string; readonly line: string }
+  readonly startNow?: { readonly command: string; readonly args: readonly string[] }
 }
 
-export function polkitRemediationSteps(report: RootineDependencyReport, environment: Readonly<Record<string, string | undefined>> = process.env): readonly RemediationStep[] {
+export function polkitRemediationSteps(report: RootineDependencyReport): readonly RemediationStep[] {
   if (!report.linux) return []
   const steps: RemediationStep[] = []
   if (report.polkit.pkexec === undefined && report.sudo !== undefined) {
@@ -31,18 +30,29 @@ export function polkitRemediationSteps(report: RootineDependencyReport, environm
   }
   if (!report.polkit.agent && report.sudo !== undefined) {
     const agentPackage = agentPackageForDesktop(report.desktop)
-    const agentBinary = agentBinaryForDesktop(report.desktop)
     if (agentPackage !== undefined) {
+      const startNow = agentStartForDesktop(report.desktop)
       steps.push({
         label: `install a polkit authentication agent (${agentPackage})`,
         command: report.sudo,
         args: installArgs(report.polkit.packageManager, agentPackage),
-        ...(agentBinary === undefined ? {} : { agentBinary }),
-        ...(autostartForDesktop(report.desktop, environment) === undefined ? {} : { autostart: autostartForDesktop(report.desktop, environment)! }),
+        ...(startNow === undefined ? {} : { startNow }),
       })
     }
   }
   return steps
+}
+
+// hyprpolkitagent ships a systemd user unit: enable --now persists across
+// sessions, starts it immediately, and restarts it if it crashes — better
+// than an exec-once line in hyprland.conf.
+export function agentStartForDesktop(desktop: string): { readonly command: string; readonly args: readonly string[] } | undefined {
+  const name = desktop.toLowerCase()
+  if (name.includes("hypr")) return { command: "systemctl", args: ["--user", "enable", "--now", "hyprpolkitagent.service"] }
+  if (name.includes("kde") || name.includes("plasma")) return { command: "/usr/bin/setsid", args: ["-f", "/usr/lib/polkit-kde-authentication-agent-1"] }
+  if (name.includes("gnome") || name.includes("ubuntu") || name.includes("cinnamon") || name.includes("xfce") || name.includes("mate") || name.includes("budgie") || name.includes("pantheon") || name.includes("unity")) return { command: "/usr/bin/setsid", args: ["-f", "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"] }
+  if (name.includes("sway") || name.includes("river")) return { command: "/usr/bin/setsid", args: ["-f", "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"] }
+  return undefined
 }
 
 export function agentPackageForDesktop(desktop: string): string | undefined {
@@ -52,23 +62,6 @@ export function agentPackageForDesktop(desktop: string): string | undefined {
   if (name.includes("gnome") || name.includes("ubuntu") || name.includes("cinnamon") || name.includes("xfce") || name.includes("mate") || name.includes("budgie") || name.includes("pantheon") || name.includes("unity")) return "polkit-gnome"
   if (name.includes("sway") || name.includes("river")) return "polkit-gnome"
   return undefined
-}
-
-function agentBinaryForDesktop(desktop: string): string | undefined {
-  const name = desktop.toLowerCase()
-  if (name.includes("hypr")) return "/usr/bin/hyprpolkitagent"
-  if (name.includes("kde") || name.includes("plasma")) return "/usr/lib/polkit-kde-authentication-agent-1"
-  if (name.includes("gnome") || name.includes("ubuntu") || name.includes("cinnamon") || name.includes("xfce") || name.includes("mate") || name.includes("budgie") || name.includes("pantheon") || name.includes("unity")) return "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
-  if (name.includes("sway") || name.includes("river")) return "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
-  return undefined
-}
-
-function autostartForDesktop(desktop: string, environment: Readonly<Record<string, string | undefined>>): { readonly path: string; readonly line: string } | undefined {
-  const name = desktop.toLowerCase()
-  if (!name.includes("hypr")) return undefined
-  const home = environment["HOME"]
-  if (home === undefined) return undefined
-  return { path: `${home}/.config/hypr/hyprland.conf`, line: "exec-once = hyprpolkitagent" }
 }
 
 export async function probeDependencies(environment: Readonly<Record<string, string | undefined>> = process.env): Promise<RootineDependencyReport> {

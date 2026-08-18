@@ -144,7 +144,7 @@ export async function remediatePolkit(input: {
   for (;;) {
     const problems = polkitProblems(report)
     if (problems.length === 0) return report
-    const steps = polkitRemediationSteps(report, input.environment)
+    const steps = polkitRemediationSteps(report)
     if (steps.length === 0) throw new RootineSetupError(`cannot remediate automatically: ${problems.join("; ")}`)
     const before = JSON.stringify(report)
     for (const step of steps) {
@@ -152,30 +152,15 @@ export async function remediatePolkit(input: {
       input.log(`-> ${step.label}`)
       const result = await input.run(step.command, step.args)
       if (result.exitCode !== 0) throw new RootineSetupError(`${step.label} failed: ${result.stderr.trim() || "see output above"}`)
-      if (step.agentBinary !== undefined) {
-        input.log("-> starting the polkit authentication agent for this session")
-        await input.run("/usr/bin/setsid", ["-f", step.agentBinary])
-      }
-      if (step.autostart !== undefined) {
-        input.log(`-> persisting agent autostart: ${step.autostart.path}`)
-        await persistAutostart(step.autostart.path, step.autostart.line)
+      if (step.startNow !== undefined) {
+        input.log(`-> starting the polkit authentication agent: ${[step.startNow.command, ...step.startNow.args].join(" ")}`)
+        const started = await input.run(step.startNow.command, step.startNow.args)
+        if (started.exitCode !== 0) throw new RootineSetupError(`could not start the polkit authentication agent: ${started.stderr.trim() || "see output above"}`)
       }
     }
     report = await probe(input.environment)
     if (JSON.stringify(report) === before) throw new RootineSetupError(`polkit remediation made no progress: ${problems.join("; ")}`)
   }
-}
-
-async function persistAutostart(path: string, line: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  let source = ""
-  try {
-    source = await readFile(path, "utf8")
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
-  }
-  if (source.includes(line)) return
-  await writeFile(path, `${source}${source.endsWith("\n") || source === "" ? "" : "\n"}${line}\n`)
 }
 
 export async function readConfig(path: string): Promise<RootineConfig | undefined> {

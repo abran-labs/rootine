@@ -14,6 +14,9 @@ bun add -g rootine     # or: bunx rootine
 rootine setup          # interactive: mode, wrappers, agent prompts
 ```
 
+`bun add -g` auto-starts the interactive setup after install (postinstall). Skip it with
+`ROOTINE_SKIP_ONBOARD=1` — useful for scripts and `bunx`.
+
 Requires: Linux, polkit (`polkitd` + a session agent), sudo. Missing polkit → setup prints
 the distro install command.
 
@@ -46,7 +49,7 @@ Setup also writes a prompt section (between `<!-- PX_START -->` / `<!-- PX_END -
 ## Commands
 
 ```sh
-rootine setup [--mode always-allow|review|always-ask] [--yes]
+rootine setup [--always-allow|--review|--always-ask] [--yes]
 rootine doctor
 rootine uninstall [--yes]
 ```

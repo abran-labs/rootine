@@ -1,12 +1,12 @@
 import { confirm, intro, outro, select } from "@clack/prompts"
 import { dialogWrapperScript, silentWrapperScript } from "./assets"
-import { MODES, type Mode } from "./config"
+import type { Mode } from "./config"
 import { polkitInstallCommand, polkitProblems, probeDependencies } from "./deps"
 import { defaultWrapperRun, readConfig, runSetup, runUninstall, type SetupResult } from "./install"
 import { rootinePaths, type RootinePaths } from "./paths"
 
 const HELP = `Usage:
-  rootine setup [--mode always-allow|review|always-ask] [--yes]
+  rootine setup [--always-allow|--review|--always-ask] [--yes]
   rootine doctor
   rootine uninstall [--yes]
 
@@ -34,7 +34,7 @@ export async function main(args: readonly string[], environment: Readonly<Record
   return setup(paths, parsed)
 }
 
-function parseArgs(args: readonly string[]): ParsedArgs {
+export function parseArgs(args: readonly string[]): ParsedArgs {
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return { kind: "help" }
   const [command, ...rest] = args as readonly string[]
   if (command === "doctor") return { kind: "doctor" }
@@ -44,35 +44,15 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     return { kind: "uninstall", yes }
   }
   if (command !== "setup") throw new RootineCliError(`unknown command: ${command ?? ""}`)
-  let mode: Mode | undefined
   const yes = rest.includes("--yes")
-  let index = 0
-  while (index < rest.length) {
-    const token = rest[index]
-    if (token === undefined) break
-    if (token === "--yes") {
-      index += 1
-      continue
-    }
-    if (token.startsWith("--mode")) {
-      const value = flagValue(rest, token, "--mode")
-      if (value === undefined || !MODES.includes(value as Mode)) throw new RootineCliError(`--mode must be one of ${MODES.join(", ")}`)
-      mode = value as Mode
-      index += token === "--mode" ? 2 : 1
-      continue
-    }
-    throw new RootineCliError(`unknown flag: ${token}`)
-  }
+  const modeFlags = rest.filter((token) => token === "--always-allow" || token === "--review" || token === "--always-ask")
+  if (modeFlags.length > 1) throw new RootineCliError("setup accepts only one mode flag")
+  const mode = modeFlags[0] === "--always-allow" ? "always-allow" : modeFlags[0] === "--review" ? "review" : modeFlags[0] === "--always-ask" ? "always-ask" : undefined
+  const unknown = rest.find((token) => token !== "--yes" && token !== "--always-allow" && token !== "--review" && token !== "--always-ask")
+  if (unknown !== undefined) throw new RootineCliError(`unknown flag: ${unknown}`)
   return { kind: "setup", ...(mode === undefined ? {} : { mode }), yes }
 }
 
-function flagValue(args: readonly string[], token: string, flag: string): string | undefined {
-  if (token.startsWith(`${flag}=`)) return token.slice(flag.length + 1)
-  const index = args.indexOf(token)
-  const next = args[index + 1]
-  if (next !== undefined && !next.startsWith("--")) return next
-  return undefined
-}
 
 async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>): Promise<number> {
   const report = await probeDependencies()

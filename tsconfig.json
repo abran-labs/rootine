@@ -3,8 +3,12 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ESNext"],
-    "types": ["bun-types"],
+    "lib": [
+      "ESNext"
+    ],
+    "types": [
+      "bun-types"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -21,6 +25,13 @@
     "moduleDetection": "force",
     "noEmit": true
   },
-  "include": ["src", "test"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src",
+    "test",
+    "scripts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

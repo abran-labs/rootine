@@ -11,10 +11,12 @@
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run build",
     "test": "bun test",
-    "prepublishOnly": "bun run check"
+    "prepublishOnly": "bun run check",
+    "postinstall": "bun scripts/postinstall.ts"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/postinstall.ts"
   ],
   "dependencies": {
     "@clack/prompts": "^1.7.0"

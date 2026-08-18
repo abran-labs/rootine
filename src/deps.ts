@@ -11,7 +11,7 @@ export type RootineDependencyReport = {
 }
 
 export async function probeDependencies(): Promise<RootineDependencyReport> {
-  const [pkexec, agent, polkitd, packageManager] = await Promise.all([Bun.which("pkexec"), probeProcess("polkit.*agent"), probeProcess("^polkitd$"), detectPackageManager()])
+  const [pkexec, agent, polkitd, packageManager] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager()])
   return {
     linux: process.platform === "linux",
     polkit: { pkexec: pkexec ?? undefined, polkitd, agent, packageManager },
@@ -44,8 +44,38 @@ export function polkitProblems(report: RootineDependencyReport): readonly string
 }
 
 async function probeProcess(pattern: string): Promise<boolean> {
+  // The [x] character-class trick keeps the pattern from matching this probe's own shell.
   try {
-    const child = Bun.spawn(["pgrep", "-f", pattern], { stdout: "pipe", stderr: "ignore" })
+    const child = Bun.spawn(["pgrep", "-f", `[${pattern[0]}]${pattern.slice(1)}`], { stdout: "pipe", stderr: "ignore" })
+    const output = await new Response(child.stdout).text()
+    await child.exited
+    return output.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+// A polkit agent registers on the session bus; its process name varies
+// (aperture, hyprpolkitagent, polkit-gnome-authentication-agent-1, ...).
+// Prefer busctl so any agent is seen regardless of its binary name.
+async function probePolkitAgent(): Promise<boolean> {
+  try {
+    const child = Bun.spawn(["busctl", "--user", "list"], { stdout: "pipe", stderr: "ignore" })
+    const output = await new Response(child.stdout).text()
+    const exitCode = await child.exited
+    if (exitCode === 0 && /polkit|policykit|authenticator/i.test(output)) return true
+  } catch {
+    // fall through to process-name patterns
+  }
+  for (const pattern of ["polkit.*agent", "aperture", "hyprpolkitagent"]) {
+    if (await probeProcess(pattern)) return true
+  }
+  return false
+}
+
+async function probePolkitd(): Promise<boolean> {
+  try {
+    const child = Bun.spawn(["pgrep", "-x", "polkitd"], { stdout: "pipe", stderr: "ignore" })
     const output = await new Response(child.stdout).text()
     await child.exited
     return output.trim().length > 0

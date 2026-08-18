@@ -47,18 +47,26 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   let mode: Mode | undefined
   let allowlist: readonly string[] = []
   const yes = rest.includes("--yes")
-  for (const token of rest) {
-    if (token === "--yes") continue
+  let index = 0
+  while (index < rest.length) {
+    const token = rest[index]
+    if (token === undefined) break
+    if (token === "--yes") {
+      index += 1
+      continue
+    }
     if (token.startsWith("--mode")) {
       const value = flagValue(rest, token, "--mode")
       if (value === undefined || !MODES.includes(value as Mode)) throw new RootineCliError(`--mode must be one of ${MODES.join(", ")}`)
       mode = value as Mode
+      index += token === "--mode" ? 2 : 1
       continue
     }
     if (token.startsWith("--allowlist")) {
       const value = flagValue(rest, token, "--allowlist")
       allowlist = value === undefined || value === "" ? [] : value.split(",")
       for (const program of allowlist) if (!program.startsWith("/")) throw new RootineCliError("--allowlist entries must be absolute program paths")
+      index += token === "--allowlist" ? 2 : 1
       continue
     }
     throw new RootineCliError(`unknown flag: ${token}`)

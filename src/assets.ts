@@ -1,14 +1,15 @@
-import type { Mode, RootineConfig } from "./config"
+import type { Mode } from "./config"
 
-export const WRAPPER_NAME = "px"
-export const RULE_FILE = "/etc/polkit-1/rules.d/10-rootine.rules"
+export const DIALOG_WRAPPER = "px"
+export const SILENT_WRAPPER = "py"
+export const SUDOERS_FILE = "/etc/sudoers.d/10-rootine"
 export const PROMPT_MARKER_START = "<!-- PX_START -->"
 export const PROMPT_MARKER_END = "<!-- PX_END -->"
 
-export function wrapperScript(): string {
+export function dialogWrapperScript(): string {
   return `#!/bin/sh
-# px — argv-only privileged runner via pkexec (managed by rootine).
-# The polkit dialog is the user's approval; no password passes through here.
+# px — argv-only privileged runner that always asks (managed by rootine).
+# The polkit approval dialog is the user's approval; no password passes through here.
 # Usage: px EXECUTABLE [ARG...]  (no shell strings, no pipes, no redirection)
 if [ $# -lt 1 ]; then
   echo "usage: px EXECUTABLE [ARG...]" >&2
@@ -18,26 +19,38 @@ exec pkexec --disable-internal-agent "$@"
 `
 }
 
-export function polkitRuleSource(config: RootineConfig, username: string): string | undefined {
-  if (config.mode === "always-ask") return undefined
-  const allowlist = config.mode === "review" ? `[${config.allowlist.map((program) => JSON.stringify(program)).join(", ")}]` : undefined
-  const body = allowlist === undefined
-    ? `  if (action.id !== "org.freedesktop.policykit.exec") return;\n  if (subject.user !== ${JSON.stringify(username)}) return;\n  return polkit.Result.YES;`
-    : `  if (action.id !== "org.freedesktop.policykit.exec") return;\n  if (subject.user !== ${JSON.stringify(username)}) return;\n  var allowlist = ${allowlist};\n  if (allowlist.indexOf(action.lookup("program")) === -1) return;\n  return polkit.Result.YES;`
-  return `// Managed by rootine; regenerate with \`rootine setup\`.\npolkit.addRule(function (action, subject) {\n${body}\n});\n`
+export function silentWrapperScript(): string {
+  return `#!/bin/sh
+# py — argv-only privileged runner that never asks (managed by rootine).
+# Silent because of the rootine sudoers entry; there is NO approval dialog.
+# Usage: py EXECUTABLE [ARG...]  (no shell strings, no pipes, no redirection)
+if [ $# -lt 1 ]; then
+  echo "usage: py EXECUTABLE [ARG...]" >&2
+  exit 2
+fi
+exec sudo -- "$@"
+`
 }
 
-export function agentPrompt(mode: Mode, allowlist: readonly string[]): string {
+export function sudoersLine(username: string): string {
+  return `${username} ALL=(ALL) NOPASSWD: ALL\n`
+}
+
+export function sudoersFileSource(username: string): string {
+  return `# Managed by rootine; regenerate with \`rootine setup\`.\n${sudoersLine(username)}`
+}
+
+export function agentPrompt(mode: Mode): string {
   const rules = [
-    "never `sudo` or raw `pkexec`",
+    "never raw `sudo` or raw `pkexec`",
     "never shell strings, pipes, or redirection",
     "never secrets in args",
   ]
-  const common = rules.map((rule) => `- Run privileged commands ONLY via \`px <exe> [args...]\`: ${rule}.`).join("\n")
-  const modeText = promptForMode(mode, allowlist)
+  const common = rules.map((rule) => `- Run privileged commands ONLY via the rootine wrappers: ${rule}.`).join("\n")
+  const modeText = promptForMode(mode)
   return `${PROMPT_MARKER_START}
 
-# Privileged commands (px)
+# Privileged commands (rootine)
 
 ${common}
 ${modeText}
@@ -45,13 +58,18 @@ ${PROMPT_MARKER_END}
 `
 }
 
-function promptForMode(mode: Mode, allowlist: readonly string[]): string {
+function promptForMode(mode: Mode): string {
   switch (mode) {
     case "always-allow":
-      return "- No approval dialog will appear: every `px` call runs as root immediately. The user trusts you with root; use it deliberately."
+      return "- Use `py <exe> [args...]` for everything — no dialog will appear, every call runs as root immediately. The user trusts you with root; use it deliberately."
     case "review":
-      return `- Programs in the always-allow list run without a dialog: ${allowlist.length === 0 ? "(none)" : allowlist.join(", ")}\n- All other programs show a polkit approval dialog the user must approve (first approval cached ~5 minutes).\n- No dialog = no polkit agent in this session; stop and tell the user instead of guessing.`
+      return [
+        "- Use `py <exe> [args...]` when the operation is routine and safe: status checks, reading logs, non-destructive inspection. No dialog appears.",
+        "- Use `px <exe> [args...]` when the operation is sensitive or destructive — installs, service changes, deletions, firewall/network changes, anything user-visible — so the user must approve the polkit dialog.",
+        "- When unsure, use `px`.",
+        "- No dialog = no polkit agent in this session; stop and tell the user instead of guessing.",
+      ].join("\n")
     case "always-ask":
-      return "- Every privileged command shows a polkit approval dialog the user must approve (first approval cached ~5 minutes).\n- No dialog = no polkit agent in this session; stop and tell the user instead of guessing."
+      return "- Use `px <exe> [args...]`: every privileged command shows a polkit approval dialog the user must approve (first approval cached ~5 minutes).\n- No dialog = no polkit agent in this session; stop and tell the user instead of guessing."
   }
 }

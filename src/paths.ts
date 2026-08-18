@@ -4,8 +4,9 @@ import { dirname, join } from "node:path"
 export type RootinePaths = {
   readonly configFile: string
   readonly wrapperDir: string
-  readonly wrapperFile: string
-  readonly ruleFile: string
+  readonly dialogWrapperFile: string
+  readonly silentWrapperFile: string
+  readonly sudoersFile: string
   readonly opencodeAgentFile: string
   readonly claudeAgentFile: string
 }
@@ -17,8 +18,9 @@ export function rootinePaths(environment: Readonly<Record<string, string | undef
   return {
     configFile: join(configHome, "rootine", "config.json"),
     wrapperDir,
-    wrapperFile: join(wrapperDir, "px"),
-    ruleFile: "/etc/polkit-1/rules.d/10-rootine.rules",
+    dialogWrapperFile: join(wrapperDir, "px"),
+    silentWrapperFile: join(wrapperDir, "py"),
+    sudoersFile: "/etc/sudoers.d/10-rootine",
     opencodeAgentFile: join(configHome, "opencode", "AGENTS.md"),
     claudeAgentFile: join(home, ".claude", "CLAUDE.md"),
   }

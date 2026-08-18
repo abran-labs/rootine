@@ -14,16 +14,18 @@ afterEach(async () => {
 const healthyDeps: RootineDependencyReport = {
   linux: true,
   polkit: { pkexec: "/usr/bin/pkexec", polkitd: true, agent: true, packageManager: "pacman" },
+  sudo: "/usr/bin/sudo",
 }
 
-type FakeRun = { readonly calls: { command: string; args: readonly string[]; input?: string }[]; readonly failRuleInstall: boolean }
+type FakeRun = { readonly calls: { command: string; args: readonly string[] }[]; readonly failSudoersInstall: boolean }
 
 function paths(root: string): RootinePaths {
   return {
     configFile: join(root, "config", "rootine", "config.json"),
     wrapperDir: join(root, "bin"),
-    wrapperFile: join(root, "bin", "px"),
-    ruleFile: join(root, "10-rootine.rules"),
+    dialogWrapperFile: join(root, "bin", "px"),
+    silentWrapperFile: join(root, "bin", "py"),
+    sudoersFile: join(root, "10-rootine"),
     opencodeAgentFile: join(root, "config", "opencode", "AGENTS.md"),
     claudeAgentFile: join(root, "home", ".claude", "CLAUDE.md"),
   }
@@ -31,65 +33,76 @@ function paths(root: string): RootinePaths {
 
 function fakeRun(fail = false): FakeRun {
   const calls: FakeRun["calls"] = []
-  return { calls, failRuleInstall: fail }
+  return { calls, failSudoersInstall: fail }
 }
 
-function runner(fake: FakeRun, ruleFile: string) {
-  return async (command: string, args: readonly string[], input?: string) => {
-    fake.calls.push({ command, args, ...(input === undefined ? {} : { input }) })
-    if (fake.failRuleInstall && args.includes(ruleFile) && args[0] === "/usr/bin/tee") return { exitCode: 126, stderr: "polkit dialog cancelled" }
+function runner(fake: FakeRun, sudoersFile: string) {
+  return async (command: string, args: readonly string[]) => {
+    fake.calls.push({ command, args })
+    if (fake.failSudoersInstall && args[0] === "/usr/bin/install" && args.includes(sudoersFile)) return { exitCode: 126, stderr: "polkit dialog cancelled" }
     return { exitCode: 0, stderr: "" }
   }
 }
 
-function options(root: string, mode: "always-allow" | "review" | "always-ask", allowlist: readonly string[] = [], fake: FakeRun = fakeRun()) {
+function options(root: string, mode: "always-allow" | "review" | "always-ask", fake: FakeRun = fakeRun()) {
   return {
     mode,
-    allowlist,
     paths: paths(root),
     username: "abran",
     dependencies: healthyDeps,
     confirm: async () => true,
-    run: runner(fake, paths(root).ruleFile),
+    run: runner(fake, paths(root).sudoersFile),
     log: () => undefined,
   }
 }
 
 describe("rootine setup", () => {
-  test("installs wrapper, config, rule, and agent prompts in review mode", async () => {
+  test("review installs both wrappers, the sudoers entry, and prompts", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)
     const fake = fakeRun()
-    const result = await runSetup(options(root, "review", ["/usr/bin/journalctl"], fake))
+    const result = await runSetup(options(root, "review", fake))
 
     expect(result.status).toBe("applied")
     expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec --disable-internal-agent")
-    const config = JSON.parse(await readFile(join(root, "config", "rootine", "config.json"), "utf8"))
-    expect(config.mode).toBe("review")
-    expect(await readFile(join(root, "config", "opencode", "AGENTS.md"), "utf8")).toContain("/usr/bin/journalctl")
-    expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("polkit approval dialog")
-    expect(fake.calls.some((call) => call.args.includes(paths(root).ruleFile))).toBe(true)
-    const rule = fake.calls.find((call) => call.command.endsWith("px") && call.args[0] === "/usr/bin/tee")
-    expect(rule?.input).toContain("polkit.addRule")
-    expect(rule?.input).toContain('"abran"')
+    expect(await readFile(join(root, "bin", "py"), "utf8")).toContain("exec sudo --")
+    expect(JSON.parse(await readFile(join(root, "config", "rootine", "config.json"), "utf8")).mode).toBe("review")
+    expect(await readFile(join(root, "config", "opencode", "AGENTS.md"), "utf8")).toContain("sensitive or destructive")
+    expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("routine and safe")
+    // sudoers staged, validated, then installed through the dialog wrapper
+    const calls = fake.calls.map((call) => call.args[0])
+    expect(calls).toContain("/usr/bin/visudo")
+    const install = fake.calls.find((call) => call.args[0] === "/usr/bin/install")
+    expect(install?.args).toContain(paths(root).sudoersFile)
+    expect(install?.command.endsWith("px")).toBe(true)
   })
 
-  test("always-ask writes no rule and removes a stale one", async () => {
+  test("always-ask installs only px, no py and no sudoers", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)
-    await Bun.write(join(root, "config", "rootine", "config.json"), JSON.stringify({ version: 1, mode: "always-allow", allowlist: [] }))
-    await Bun.write(paths(root).ruleFile, "stale rule\n")
     const fake = fakeRun()
-    const result = await runSetup(options(root, "always-ask", [], fake))
-    expect(result.status).toBe("applied")
-    expect(fake.calls.some((call) => call.args[0] === "/usr/bin/tee")).toBe(false)
-    expect(fake.calls.some((call) => call.args[0] === "/usr/bin/rm" && call.args.includes(paths(root).ruleFile))).toBe(true)
+    await runSetup(options(root, "always-ask", fake))
+    expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec")
+    expect(await Bun.file(join(root, "bin", "py")).exists()).toBe(false)
+    expect(fake.calls.some((call) => call.args[0] === "/usr/bin/visudo")).toBe(false)
   })
 
-  test("aborts when the polkit rule install is denied", async () => {
+  test("switching from always-allow to always-ask removes py and the sudoers entry", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)
-    await expect(runSetup(options(root, "always-allow", [], fakeRun(true)))).rejects.toThrow("polkit rule install failed")
+    const fake = fakeRun()
+    await runSetup(options(root, "always-allow", fake))
+    await Bun.write(paths(root).sudoersFile, "stale entry\n")
+    const result = await runSetup(options(root, "always-ask", fake))
+    expect(result.status).toBe("applied")
+    expect(await Bun.file(join(root, "bin", "py")).exists()).toBe(false)
+    expect(fake.calls.some((call) => call.args[0] === "/usr/bin/rm" && call.args.includes(paths(root).sudoersFile))).toBe(true)
+  })
+
+  test("aborts when the sudoers install is denied", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
+    temporaryPaths.push(root)
+    await expect(runSetup(options(root, "review", fakeRun(true)))).rejects.toThrow("sudoers install failed")
   })
 
   test("a repeated identical setup makes no changes", async () => {

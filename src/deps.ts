@@ -8,13 +8,15 @@ export type PolkitStatus = {
 export type RootineDependencyReport = {
   readonly linux: boolean
   readonly polkit: PolkitStatus
+  readonly sudo: string | undefined
 }
 
 export async function probeDependencies(): Promise<RootineDependencyReport> {
-  const [pkexec, agent, polkitd, packageManager] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager()])
+  const [pkexec, agent, polkitd, packageManager, sudo] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager(), Bun.which("sudo")])
   return {
     linux: process.platform === "linux",
     polkit: { pkexec: pkexec ?? undefined, polkitd, agent, packageManager },
+    sudo: sudo ?? undefined,
   }
 }
 

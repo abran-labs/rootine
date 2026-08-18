@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { userInfo } from "node:os"
-import { agentPrompt, polkitRuleSource, wrapperScript } from "./assets"
+import { agentPrompt, dialogWrapperScript, silentWrapperScript, sudoersFileSource } from "./assets"
 import { parseConfig, type Mode, type RootineConfig } from "./config"
 import { polkitProblems, probeDependencies, type RootineDependencyReport } from "./deps"
 import { type RootinePaths } from "./paths"
@@ -9,7 +9,6 @@ import { removeAgentPrompt, writeAgentPrompt } from "./tool-writers"
 
 export type SetupOptions = {
   readonly mode: Mode
-  readonly allowlist?: readonly string[]
   readonly paths: RootinePaths
   readonly username?: string
   readonly dependencies?: RootineDependencyReport
@@ -26,48 +25,65 @@ export type SetupResult = {
 export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const report = options.dependencies ?? await probeDependencies()
   const problems = polkitProblems(report)
-  const username = options.username ?? userInfo().username
-  const config: RootineConfig = { version: 1, mode: options.mode, allowlist: options.allowlist ?? [] }
-  const promptSection = agentPrompt(config.mode, config.allowlist)
-  const ruleSource = polkitRuleSource(config, username)
-  const changes: string[] = []
   if (problems.length > 0) throw new RootineSetupError(problems.join("; "))
+  const username = options.username ?? userInfo().username
+  const config: RootineConfig = { version: 1, mode: options.mode }
+  const promptSection = agentPrompt(config.mode)
+  const needsSudoers = config.mode !== "always-ask"
+  if (needsSudoers && report.sudo === undefined) throw new RootineSetupError("sudo is required for py-based modes (review, always-allow)")
+  const sudoersSource = needsSudoers ? sudoersFileSource(username) : undefined
   const current = await readConfig(options.paths.configFile)
-  const ruleChanged = await ruleStateChanged(options.paths.ruleFile, ruleSource)
+  const sudoersChanged = await sudoersStateChanged(options.paths.sudoersFile, sudoersSource)
   const promptChanges = await Promise.all([promptChanged(options.paths.opencodeAgentFile, promptSection), promptChanged(options.paths.claudeAgentFile, promptSection)])
-  const wrapperNeedsUpdate = await wrapperChanged(options.paths.wrapperFile)
+  const dialogWrapperChanged = await wrapperChanged(options.paths.dialogWrapperFile, dialogWrapperScript())
+  const silentWrapperChanged = needsSudoers && await wrapperChanged(options.paths.silentWrapperFile, silentWrapperScript())
   const summary = [
-    `mode: ${config.mode}${config.mode === "review" ? `, always-allow: ${config.allowlist.length === 0 ? "(none)" : config.allowlist.join(", ")}` : ""}`,
-    ...(wrapperNeedsUpdate ? ["wrapper: install ~/.local/bin/px"] : ["wrapper: unchanged"]),
-    ...(ruleChanged ? [config.mode === "always-ask" ? "polkit rule: remove" : "polkit rule: install (one approval dialog)"] : ["polkit rule: unchanged"]),
+    `mode: ${config.mode}`,
+    ...(dialogWrapperChanged ? ["wrapper: install ~/.local/bin/px (dialog)"] : ["wrapper px: unchanged"]),
+    ...(silentWrapperChanged ? ["wrapper: install ~/.local/bin/py (silent)"] : needsSudoers ? ["wrapper py: unchanged"] : ["wrapper py: remove if present"]),
+    ...(sudoersChanged ? [sudoersSource === undefined ? "sudoers: remove" : "sudoers: install (one approval dialog)"] : ["sudoers: unchanged"]),
     ...(promptChanges[0]?.changed === true ? ["prompt: OpenCode AGENTS.md updated"] : []),
     ...(promptChanges[1]?.changed === true ? ["prompt: Claude CLAUDE.md updated"] : []),
   ]
   if (!summary.some((line) => line.includes("updated") || line.includes("install") || line.includes("remove")) && current?.mode === config.mode) return { status: "applied", changes: [] }
   if (!(await options.confirm(summary))) return { status: "cancelled", changes: [] }
 
-  if (wrapperNeedsUpdate) {
-    await mkdir(options.paths.wrapperDir, { recursive: true })
-    await writeFile(options.paths.wrapperFile, wrapperScript(), { mode: 0o755 })
-    changes.push(`wrapper installed: ${options.paths.wrapperFile}`)
+  const changes: string[] = []
+  await mkdir(options.paths.wrapperDir, { recursive: true })
+  if (dialogWrapperChanged) {
+    await writeFile(options.paths.dialogWrapperFile, dialogWrapperScript(), { mode: 0o755 })
+    changes.push(`wrapper installed: ${options.paths.dialogWrapperFile}`)
   }
-  await mkdir(dirname(options.paths.configFile), { recursive: true })
-  await writeFile(options.paths.configFile, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-  changes.push(`config written: ${options.paths.configFile}`)
-
-  if (ruleChanged) {
-    if (ruleSource === undefined) {
-      const result = await options.run(options.paths.wrapperFile, ["/usr/bin/rm", "-f", options.paths.ruleFile])
-      if (result.exitCode === 0) changes.push("polkit rule removed")
-      else options.log(`could not remove polkit rule: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
-    } else {
-      const result = await options.run(options.paths.wrapperFile, ["/usr/bin/tee", options.paths.ruleFile], ruleSource)
-      if (result.exitCode !== 0) throw new RootineSetupError(`polkit rule install failed (dialog cancelled or no agent): ${result.stderr.trim()}`)
-      await options.run(options.paths.wrapperFile, ["/usr/bin/chmod", "0644", options.paths.ruleFile])
-      changes.push(`polkit rule installed: ${options.paths.ruleFile}`)
+  if (silentWrapperChanged === true) {
+    await writeFile(options.paths.silentWrapperFile, silentWrapperScript(), { mode: 0o755 })
+    changes.push(`wrapper installed: ${options.paths.silentWrapperFile}`)
+  }
+  if (!needsSudoers) {
+    const existing = Bun.file(options.paths.silentWrapperFile)
+    if (await existing.exists()) {
+      await existing.delete()
+      changes.push(`wrapper removed: ${options.paths.silentWrapperFile}`)
     }
   }
 
+  if (sudoersChanged) {
+    if (sudoersSource === undefined) {
+      const result = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/rm", "-f", options.paths.sudoersFile])
+      if (result.exitCode === 0) changes.push("sudoers entry removed")
+      else options.log(`could not remove sudoers entry: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
+    } else {
+      await applySudoers(options, sudoersSource)
+      changes.push(`sudoers entry installed: ${options.paths.sudoersFile}`)
+    }
+  }
+
+  await mkdir(dirname(options.paths.configFile), { recursive: true })
+  const configText = `${JSON.stringify(config, null, 2)}\n`
+  const configFile = Bun.file(options.paths.configFile)
+  if (!(await configFile.exists()) || (await configFile.text()) !== configText) {
+    await writeFile(options.paths.configFile, configText, { mode: 0o600 })
+    changes.push(`config written: ${options.paths.configFile}`)
+  }
   for (const target of promptChanges) {
     if (target.changed === false) continue
     const result = await writeAgentPrompt(target.path, promptSection)
@@ -76,17 +92,35 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   return { status: "applied", changes }
 }
 
+// Stage the sudoers content as a user-owned temp file, validate it with
+// visudo -cf, then move it into /etc/sudoers.d through the dialog wrapper.
+async function applySudoers(options: SetupOptions, source: string): Promise<void> {
+  const stage = join(dirname(options.paths.configFile), "sudoers.stage")
+  await mkdir(dirname(stage), { recursive: true })
+  await writeFile(stage, source, { mode: 0o600 })
+  const validate = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/visudo", "-cf", stage])
+  if (validate.exitCode !== 0) {
+    await rm(stage, { force: true })
+    throw new RootineSetupError(`sudoers validation failed: ${validate.stderr.trim()}`)
+  }
+  const install = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/install", "-m", "0440", stage, options.paths.sudoersFile])
+  await rm(stage, { force: true })
+  if (install.exitCode !== 0) throw new RootineSetupError(`sudoers install failed (dialog cancelled or no agent): ${install.stderr.trim()}`)
+}
+
 export async function runUninstall(options: { readonly paths: RootinePaths; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
-  const confirmed = await options.confirm(["remove wrapper ~/.local/bin/px", "remove polkit rule (one approval dialog)", "remove agent prompt sections", "remove rootine config"])
+  const confirmed = await options.confirm(["remove wrappers px and py", "remove sudoers entry (one approval dialog)", "remove agent prompt sections", "remove rootine config"])
   if (!confirmed) return { status: "cancelled", changes: [] }
   const changes: string[] = []
-  await rm(options.paths.wrapperFile, { force: true })
-  changes.push("wrapper removed")
-  const rule = Bun.file(options.paths.ruleFile)
-  if (await rule.exists()) {
-    const result = await options.run(options.paths.wrapperFile, ["/usr/bin/rm", "-f", options.paths.ruleFile])
-    if (result.exitCode === 0) changes.push("polkit rule removed")
-    else options.log(`could not remove polkit rule: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
+  for (const wrapper of [options.paths.dialogWrapperFile, options.paths.silentWrapperFile]) {
+    await rm(wrapper, { force: true })
+    changes.push(`wrapper removed: ${wrapper}`)
+  }
+  const sudoers = Bun.file(options.paths.sudoersFile)
+  if (await sudoers.exists()) {
+    const result = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/rm", "-f", options.paths.sudoersFile])
+    if (result.exitCode === 0) changes.push("sudoers entry removed")
+    else options.log(`could not remove sudoers entry: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
   }
   for (const target of [options.paths.opencodeAgentFile, options.paths.claudeAgentFile]) {
     const result = await removeAgentPrompt(target)
@@ -108,9 +142,9 @@ export async function readConfig(path: string): Promise<RootineConfig | undefine
   }
 }
 
-async function wrapperChanged(path: string): Promise<boolean> {
+async function wrapperChanged(path: string, expected: string): Promise<boolean> {
   try {
-    return await readFile(path, "utf8") !== wrapperScript()
+    return await readFile(path, "utf8") !== expected
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return true
     throw error
@@ -128,12 +162,12 @@ async function promptChanged(path: string, section: string): Promise<{ readonly 
   }
 }
 
-async function ruleStateChanged(ruleFile: string, ruleSource: string | undefined): Promise<boolean> {
-  const file = Bun.file(ruleFile)
+async function sudoersStateChanged(sudoersFile: string, source: string | undefined): Promise<boolean> {
+  const file = Bun.file(sudoersFile)
   const exists = await file.exists()
-  if (ruleSource === undefined) return exists
+  if (source === undefined) return exists
   if (!exists) return true
-  return await file.text() !== ruleSource
+  return await file.text() !== source
 }
 
 export class RootineSetupError extends Error {

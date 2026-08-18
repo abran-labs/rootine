@@ -1,24 +1,24 @@
-import { confirm, intro, outro, select, text } from "@clack/prompts"
-import { wrapperScript } from "./assets"
+import { confirm, intro, outro, select } from "@clack/prompts"
+import { dialogWrapperScript, silentWrapperScript } from "./assets"
 import { MODES, type Mode } from "./config"
 import { polkitInstallCommand, polkitProblems, probeDependencies } from "./deps"
 import { defaultWrapperRun, readConfig, runSetup, runUninstall, type SetupResult } from "./install"
 import { rootinePaths, type RootinePaths } from "./paths"
 
 const HELP = `Usage:
-  rootine setup [--mode always-allow|review|always-ask] [--allowlist PATH,...] [--yes]
+  rootine setup [--mode always-allow|review|always-ask] [--yes]
   rootine doctor
   rootine uninstall [--yes]
 
 Modes:
-  always-allow  every px call runs as root, no dialog
-  review        allowlisted programs run without a dialog, everything else asks
-  always-ask    every privileged command asks (default polkit behavior)
+  always-allow  py runs everything as root, no dialog ever
+  review        py for routine safe commands, px (dialog) for sensitive ones
+  always-ask    px only; every privileged command shows the approval dialog
 `
 
 type ParsedArgs =
   | { readonly kind: "help" }
-  | { readonly kind: "setup"; readonly mode?: Mode; readonly allowlist: readonly string[]; readonly yes: boolean }
+  | { readonly kind: "setup"; readonly mode?: Mode; readonly yes: boolean }
   | { readonly kind: "doctor" }
   | { readonly kind: "uninstall"; readonly yes: boolean }
 
@@ -45,7 +45,6 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   }
   if (command !== "setup") throw new RootineCliError(`unknown command: ${command ?? ""}`)
   let mode: Mode | undefined
-  let allowlist: readonly string[] = []
   const yes = rest.includes("--yes")
   let index = 0
   while (index < rest.length) {
@@ -62,16 +61,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
       index += token === "--mode" ? 2 : 1
       continue
     }
-    if (token.startsWith("--allowlist")) {
-      const value = flagValue(rest, token, "--allowlist")
-      allowlist = value === undefined || value === "" ? [] : value.split(",")
-      for (const program of allowlist) if (!program.startsWith("/")) throw new RootineCliError("--allowlist entries must be absolute program paths")
-      index += token === "--allowlist" ? 2 : 1
-      continue
-    }
     throw new RootineCliError(`unknown flag: ${token}`)
   }
-  return { kind: "setup", ...(mode === undefined ? {} : { mode }), allowlist, yes }
+  return { kind: "setup", ...(mode === undefined ? {} : { mode }), yes }
 }
 
 function flagValue(args: readonly string[], token: string, flag: string): string | undefined {
@@ -97,60 +89,50 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     console.log("Cancelled")
     return 0
   }
-  const allowlist = parsed.allowlist.length > 0 || explicit
-    ? parsed.allowlist
-    : mode === "review"
-      ? await askAllowlist()
-      : []
   const result = explicit
-    ? await runSetup({ mode, allowlist, paths, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log })
-    : await runInteractive(paths, mode, allowlist)
+    ? await runSetup({ mode, paths, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log })
+    : await runInteractive(paths, mode)
   return reportResult(result)
 }
 
-async function runInteractive(paths: RootinePaths, mode: Mode, allowlist: readonly string[]): Promise<SetupResult> {
+async function runInteractive(paths: RootinePaths, mode: Mode): Promise<SetupResult> {
   intro("rootine setup")
-  const summaryPreview = [`mode: ${mode}${mode === "review" ? `, always-allow: ${allowlist.length === 0 ? "(none)" : allowlist.join(", ")}` : ""}`]
-  const approved = await confirm({ message: `Apply this setup? ${summaryPreview.join("; ")}` })
+  const approved = await confirm({ message: `Apply this setup? mode: ${mode}` })
   if (approved !== true) return { status: "cancelled", changes: [] }
-  return runSetup({ mode, allowlist, paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
+  return runSetup({ mode, paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
 }
 
 async function selectMode(): Promise<Mode | undefined> {
   const answer = await select({
     message: "Choose the privileged-command mode",
     options: [
-      { value: "always-allow", label: "always-allow — every px call runs as root, no dialog", hint: "yolo" },
-      { value: "review", label: "review — allowlisted programs skip the dialog, everything else asks" },
-      { value: "always-ask", label: "always-ask — every privileged command shows the approval dialog" },
+      { value: "always-allow", label: "always-allow — py runs everything as root, no dialog", hint: "yolo" },
+      { value: "review", label: "review — py for routine safe commands, px (dialog) for sensitive ones" },
+      { value: "always-ask", label: "always-ask — px only; every privileged command asks" },
     ],
   })
   return answer === "always-allow" || answer === "review" || answer === "always-ask" ? answer : undefined
-}
-
-async function askAllowlist(): Promise<readonly string[]> {
-  const answer = await text({ message: "Always-allowed programs (comma-separated absolute paths, empty = none)", placeholder: "/usr/bin/journalctl" })
-  if (typeof answer !== "string") return []
-  const entries = answer.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0)
-  for (const entry of entries) if (!entry.startsWith("/")) throw new RootineCliError("allowlist entries must be absolute program paths")
-  return entries
 }
 
 async function doctor(paths: RootinePaths): Promise<number> {
   const report = await probeDependencies()
   const problems = polkitProblems(report)
   const config = await readConfig(paths.configFile)
-  const wrapper = Bun.file(paths.wrapperFile)
-  const wrapperOk = (await wrapper.exists()) && (await wrapper.text()) === wrapperScript()
-  const rule = Bun.file(paths.ruleFile)
+  const dialogWrapper = Bun.file(paths.dialogWrapperFile)
+  const silentWrapper = Bun.file(paths.silentWrapperFile)
+  const dialogOk = (await dialogWrapper.exists()) && (await dialogWrapper.text()) === dialogWrapperScript()
+  const silentOk = (await silentWrapper.exists()) && (await silentWrapper.text()) === silentWrapperScript()
+  const sudoers = Bun.file(paths.sudoersFile)
   const lines = [
     `platform: ${report.linux ? "linux" : "unsupported"}`,
     `pkexec: ${report.polkit.pkexec ?? "missing"}`,
     `polkitd: ${report.polkit.polkitd ? "running" : "not running"}`,
     `polkit agent: ${report.polkit.agent ? "detected" : "not detected"}`,
-    `wrapper: ${wrapperOk ? `ready (${paths.wrapperFile})` : "missing or stale"}`,
-    `config: ${config === undefined ? "missing" : `mode=${config.mode} allowlist=${config.allowlist.length === 0 ? "(none)" : config.allowlist.join(",")}`}`,
-    `polkit rule: ${await rule.exists() ? "present" : "absent (default polkit behavior)"}`,
+    `sudo: ${report.sudo ?? "missing"}`,
+    `wrapper px (dialog): ${dialogOk ? `ready (${paths.dialogWrapperFile})` : "missing or stale"}`,
+    `wrapper py (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,
+    `config: ${config === undefined ? "missing" : `mode=${config.mode}`}`,
+    `sudoers entry: ${await sudoers.exists() ? "present" : "absent"}`,
     `problems: ${problems.length === 0 ? "none" : problems.join("; ")}`,
   ]
   console.log(lines.join("\n"))
@@ -158,7 +140,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
 }
 
 async function uninstall(paths: RootinePaths, yes: boolean): Promise<number> {
-  const approved = yes || await confirm({ message: "Remove the px wrapper, polkit rule, agent prompt sections, and rootine config?" }) === true
+  const approved = yes || await confirm({ message: "Remove the px/py wrappers, sudoers entry, agent prompt sections, and rootine config?" }) === true
   if (!approved) return 0
   const result = await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
   return reportResult(result)

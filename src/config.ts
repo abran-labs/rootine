@@ -4,7 +4,6 @@ export type Mode = (typeof MODES)[number]
 export type RootineConfig = {
   readonly version: 1
   readonly mode: Mode
-  readonly allowlist: readonly string[]
 }
 
 export function isMode(value: unknown): value is Mode {
@@ -16,11 +15,7 @@ export function parseConfig(value: unknown): RootineConfig {
   const record = value as Readonly<Record<string, unknown>>
   if (record["version"] !== 1) throw new RootineConfigError("rootine config version must be 1")
   if (!isMode(record["mode"])) throw new RootineConfigError(`mode must be one of ${MODES.join(", ")}`)
-  const allowlist = record["allowlist"]
-  if (!Array.isArray(allowlist) || allowlist.some((entry) => typeof entry !== "string" || !entry.startsWith("/"))) {
-    throw new RootineConfigError("allowlist must be an array of absolute program paths")
-  }
-  return { version: 1, mode: record["mode"], allowlist }
+  return { version: 1, mode: record["mode"] }
 }
 
 export class RootineConfigError extends Error {

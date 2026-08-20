@@ -65,7 +65,7 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
   const problems = polkitProblems(initial)
   const remediation = polkitRemediationSteps(initial)
   const fixedMode = parsed.mode
-  let applied = false
+  let appliedMode: Mode | undefined
   let report = initial
   const installedCli = `${paths.wrapperDir}/rootine`
   const doctorCommand = await Bun.file(installedCli).exists() ? `${installedCli} doctor` : "bun run src/index.ts doctor"
@@ -105,10 +105,37 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
         const mode = fixedMode ?? answers.mode
         if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
         await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: runInherited, quietRun: defaultWrapperRun(), log: () => undefined })
-        applied = true
+        appliedMode = mode
       },
     },
-    { node: "done", message: "Rootine is ready.", next: [{ cmd: doctorCommand, desc: "verify installation" }], when: () => applied },
+    {
+      node: "done",
+      message: "Rootine is ready.",
+      next: [
+        { cmd: "sx id", desc: "test silent root access" },
+        { cmd: doctorCommand, desc: "inspect installation" },
+      ],
+      when: () => appliedMode === "always-allow",
+    },
+    {
+      node: "done",
+      message: "Rootine is ready.",
+      next: [
+        { cmd: "sx id", desc: "test silent root access" },
+        { cmd: "px id", desc: "test approval dialog" },
+        { cmd: doctorCommand, desc: "inspect installation" },
+      ],
+      when: () => appliedMode === "review",
+    },
+    {
+      node: "done",
+      message: "Rootine is ready.",
+      next: [
+        { cmd: "px id", desc: "test approval dialog" },
+        { cmd: doctorCommand, desc: "inspect installation" },
+      ],
+      when: () => appliedMode === "always-ask",
+    },
   ]
   const result = await onboard<Answers>({ name: "Rootine", logo: true, state: false, nodes, env: { ...environment } })
   if (isFailure(result)) {

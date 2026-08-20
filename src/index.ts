@@ -65,7 +65,7 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
   const problems = polkitProblems(initial)
   const remediation = polkitRemediationSteps(initial)
   const fixedMode = parsed.mode
-  let appliedMode: Mode | undefined
+  let applied = false
   let report = initial
   const nodes: Node<Answers>[] = [
     { node: "welcome", subtitle: "Safe privileged commands for coding agents." },
@@ -103,42 +103,18 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
         const mode = fixedMode ?? answers.mode
         if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
         await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: runInherited, quietRun: defaultWrapperRun(), log: () => undefined })
-        appliedMode = mode
+        applied = true
       },
     },
     {
       node: "done",
       message: "Rootine is ready.",
       next: [
-        { cmd: "sx <executable> [args...]", desc: "run as root without approval" },
         { cmd: "rootine setup", desc: "change approval mode" },
         { cmd: "rootine doctor", desc: "inspect installation" },
         { cmd: "rootine uninstall", desc: "remove Rootine" },
       ],
-      when: () => appliedMode === "always-allow",
-    },
-    {
-      node: "done",
-      message: "Rootine is ready.",
-      next: [
-        { cmd: "sx <executable> [args...]", desc: "run as root without approval" },
-        { cmd: "px <executable> [args...]", desc: "run as root with approval" },
-        { cmd: "rootine setup", desc: "change approval mode" },
-        { cmd: "rootine doctor", desc: "inspect installation" },
-        { cmd: "rootine uninstall", desc: "remove Rootine" },
-      ],
-      when: () => appliedMode === "review",
-    },
-    {
-      node: "done",
-      message: "Rootine is ready.",
-      next: [
-        { cmd: "px <executable> [args...]", desc: "run as root with approval" },
-        { cmd: "rootine setup", desc: "change approval mode" },
-        { cmd: "rootine doctor", desc: "inspect installation" },
-        { cmd: "rootine uninstall", desc: "remove Rootine" },
-      ],
-      when: () => appliedMode === "always-ask",
+      when: () => applied,
     },
   ]
   const result = await onboard<Answers>({ name: "Rootine", logo: true, state: false, nodes, env: { ...environment } })

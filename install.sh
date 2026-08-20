@@ -5,6 +5,10 @@ set -eu
 
 ROOTINE_VERSION=${ROOTINE_VERSION:-v0.1.0}
 BASE_URL=${ROOTINE_BASE_URL:-https://github.com/abran-labs/rootine/releases/download}
+if [ "$(uname -s)" != Linux ]; then
+  echo "rootine: Linux is required" >&2
+  exit 1
+fi
 ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
 case "$ARCH" in
   x64|arm64) ;;

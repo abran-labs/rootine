@@ -77,7 +77,7 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     {
       node: "choice",
       id: "mode",
-      label: "Mode",
+      label: "Approval mode",
       default: "review",
       options: [
         { value: "review", label: "review" },

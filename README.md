@@ -2,6 +2,8 @@
 
 # Rootine
 
+**Control how AI coding agents run privileged commands.**
+
 ## Install
 
 ```sh

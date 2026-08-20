@@ -2,7 +2,7 @@
 
 # Rootine
 
-**Control how AI coding agents run privileged commands.**
+**Privileged commands for coding agents.**
 
 ## Install
 

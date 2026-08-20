@@ -67,8 +67,6 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
   const fixedMode = parsed.mode
   let appliedMode: Mode | undefined
   let report = initial
-  const installedCli = `${paths.wrapperDir}/rootine`
-  const doctorCommand = await Bun.file(installedCli).exists() ? `${installedCli} doctor` : "bun run src/index.ts doctor"
   const nodes: Node<Answers>[] = [
     { node: "welcome", subtitle: "Safe privileged commands for coding agents." },
     ...(problems.length === 0 ? [] : [{
@@ -112,8 +110,10 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       node: "done",
       message: "Rootine is ready.",
       next: [
-        { cmd: "sx id", desc: "test silent root access" },
-        { cmd: doctorCommand, desc: "inspect installation" },
+        { cmd: "sx <executable> [args...]", desc: "run as root without approval" },
+        { cmd: "rootine setup", desc: "change approval mode" },
+        { cmd: "rootine doctor", desc: "inspect installation" },
+        { cmd: "rootine uninstall", desc: "remove Rootine" },
       ],
       when: () => appliedMode === "always-allow",
     },
@@ -121,9 +121,11 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       node: "done",
       message: "Rootine is ready.",
       next: [
-        { cmd: "sx id", desc: "test silent root access" },
-        { cmd: "px id", desc: "test approval dialog" },
-        { cmd: doctorCommand, desc: "inspect installation" },
+        { cmd: "sx <executable> [args...]", desc: "run as root without approval" },
+        { cmd: "px <executable> [args...]", desc: "run as root with approval" },
+        { cmd: "rootine setup", desc: "change approval mode" },
+        { cmd: "rootine doctor", desc: "inspect installation" },
+        { cmd: "rootine uninstall", desc: "remove Rootine" },
       ],
       when: () => appliedMode === "review",
     },
@@ -131,8 +133,10 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       node: "done",
       message: "Rootine is ready.",
       next: [
-        { cmd: "px id", desc: "test approval dialog" },
-        { cmd: doctorCommand, desc: "inspect installation" },
+        { cmd: "px <executable> [args...]", desc: "run as root with approval" },
+        { cmd: "rootine setup", desc: "change approval mode" },
+        { cmd: "rootine doctor", desc: "inspect installation" },
+        { cmd: "rootine uninstall", desc: "remove Rootine" },
       ],
       when: () => appliedMode === "always-ask",
     },

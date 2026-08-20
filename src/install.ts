@@ -72,7 +72,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
       if (result.exitCode === 0) changes.push("sudoers entry removed")
       else options.log(`could not remove sudoers entry: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
     } else {
-      await applySudoers(options, sudoersSource)
+      await applySudoers(options, sudoersSource, report.sudo!)
       changes.push(`sudoers entry installed: ${options.paths.sudoersFile}`)
     }
   }
@@ -94,16 +94,16 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 
 // Stage the sudoers content as a user-owned temp file, validate it with
 // visudo -cf, then move it into /etc/sudoers.d through the dialog wrapper.
-async function applySudoers(options: SetupOptions, source: string): Promise<void> {
+async function applySudoers(options: SetupOptions, source: string, sudo: string): Promise<void> {
   const stage = join(dirname(options.paths.configFile), "sudoers.stage")
   await mkdir(dirname(stage), { recursive: true })
   await writeFile(stage, source, { mode: 0o600 })
-  const validate = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/visudo", "-cf", stage])
+  const validate = await options.run("/usr/bin/visudo", ["-cf", stage])
   if (validate.exitCode !== 0) {
     await rm(stage, { force: true })
     throw new RootineSetupError(`sudoers validation failed: ${validate.stderr.trim()}`)
   }
-  const install = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/install", "-m", "0440", stage, options.paths.sudoersFile])
+  const install = await options.run(sudo, ["/usr/bin/install", "-m", "0440", stage, options.paths.sudoersFile])
   await rm(stage, { force: true })
   if (install.exitCode !== 0) throw new RootineSetupError(`sudoers install failed (dialog cancelled or no agent): ${install.stderr.trim()}`)
 }

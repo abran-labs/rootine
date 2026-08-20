@@ -43,7 +43,7 @@ exec sudo -- "$@"
 ```
 
 `px` is gated by polkit itself. `sx` works because setup installs
-`/etc/sudoers.d/10-rootine` (staged, `visudo -cf` validated, installed through one dialog).
+`/etc/sudoers.d/10-rootine` (staged, `visudo -cf` validated, installed through terminal sudo).
 In `review`, the sx/px choice is prompt compliance — the `px` dialog is the enforcement.
 
 Setup also writes a prompt section (between `<!-- PX_START -->` / `<!-- PX_END -->`) into

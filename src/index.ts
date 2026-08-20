@@ -57,7 +57,7 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
 async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>, environment: Readonly<Record<string, string | undefined>> = process.env): Promise<number> {
   if (parsed.mode !== undefined && parsed.yes) {
     const report = await remediatePolkit({ report: await probeDependencies(environment), environment, confirm: async () => true, run: runInherited, log: console.log })
-    return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log }))
+    return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: runInherited, log: console.log }))
   }
 
   type Answers = { mode?: Mode }
@@ -89,6 +89,8 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     {
       node: "task",
       label: "Preparing system",
+      output: "inherit",
+      elevated: true,
       when: () => problems.length > 0,
       run: async () => {
         report = await remediatePolkit({ report, environment, confirm: async () => true, run: runInherited, log: () => undefined })
@@ -97,10 +99,12 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     {
       node: "task",
       label: "Installing Rootine",
+      output: "inherit",
+      elevated: true,
       run: async (answers) => {
         const mode = fixedMode ?? answers.mode
         if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
-        await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: defaultWrapperRun(), log: () => undefined })
+        await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: runInherited, log: () => undefined })
         applied = true
       },
     },

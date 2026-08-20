@@ -70,12 +70,11 @@ describe("rootine setup", () => {
     expect(JSON.parse(await readFile(join(root, "config", "rootine", "config.json"), "utf8")).mode).toBe("review")
     expect(await readFile(join(root, "config", "opencode", "AGENTS.md"), "utf8")).toContain("sensitive or destructive")
     expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("routine and safe")
-    // sudoers staged, validated, then installed through the dialog wrapper
-    const calls = fake.calls.map((call) => call.args[0])
-    expect(calls).toContain("/usr/bin/visudo")
-    const install = fake.calls.find((call) => call.args[0] === "/usr/bin/install")
+    // sudoers staged, validated, then installed through terminal sudo
+    expect(fake.calls.some((call) => call.command === "/usr/bin/visudo" && call.args[0] === "-cf")).toBe(true)
+    const install = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args[0] === "/usr/bin/install")
     expect(install?.args).toContain(paths(root).sudoersFile)
-    expect(install?.command.endsWith("px")).toBe(true)
+    expect(install?.command).toBe("/usr/bin/sudo")
   })
 
   test("always-ask installs only px, no sx and no sudoers", async () => {
@@ -85,7 +84,7 @@ describe("rootine setup", () => {
     await runSetup(options(root, "always-ask", fake))
     expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec")
     expect(await Bun.file(join(root, "bin", "sx")).exists()).toBe(false)
-    expect(fake.calls.some((call) => call.args[0] === "/usr/bin/visudo")).toBe(false)
+    expect(fake.calls.some((call) => call.command === "/usr/bin/visudo")).toBe(false)
   })
 
   test("switching from always-allow to always-ask removes sx and the sudoers entry", async () => {

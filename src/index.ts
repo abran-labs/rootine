@@ -60,14 +60,13 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log }))
   }
 
-  type Answers = { mode?: Mode; approved?: boolean }
+  type Answers = { mode?: Mode }
   const initial = await probeDependencies(environment)
   const problems = polkitProblems(initial)
   const remediation = polkitRemediationSteps(initial)
   const fixedMode = parsed.mode
   let applied = false
   let report = initial
-  const proceed = (answers: Answers): boolean => fixedMode === undefined || answers.approved === true
   const nodes: Node<Answers>[] = [
     { node: "welcome", subtitle: "Safe privileged commands for coding agents." },
     ...(problems.length === 0 ? [] : [{
@@ -78,22 +77,19 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     {
       node: "choice",
       id: "mode",
-      label: "Privileged-command mode",
+      label: "Mode",
       default: "review",
       options: [
-        { value: "review", label: "Review", hint: "sx routine, px sensitive" },
-        { value: "always-ask", label: "Always ask", hint: "px approval every time" },
-        { value: "always-allow", label: "Always allow", hint: "sx runs without prompts" },
+        { value: "review", label: "review" },
+        { value: "always-ask", label: "always ask" },
+        { value: "always-allow", label: "always allow" },
       ],
       when: () => fixedMode === undefined,
     },
-    { node: "note", title: "Mode", body: fixedMode ?? "", when: () => fixedMode !== undefined },
-    { node: "summary", title: "Review setup", when: () => fixedMode === undefined },
-    { node: "confirm", id: "approved", label: `Apply ${fixedMode ?? "this"} setup?`, default: true, when: () => fixedMode !== undefined },
     {
       node: "task",
       label: "Preparing system",
-      when: (answers) => problems.length > 0 && proceed(answers),
+      when: () => problems.length > 0,
       run: async () => {
         report = await remediatePolkit({ report, environment, confirm: async () => true, run: runInherited, log: () => undefined })
       },
@@ -101,7 +97,6 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
     {
       node: "task",
       label: "Installing Rootine",
-      when: proceed,
       run: async (answers) => {
         const mode = fixedMode ?? answers.mode
         if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
@@ -110,7 +105,6 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       },
     },
     { node: "done", message: "Rootine is ready.", next: [{ cmd: "rootine doctor", desc: "verify installation" }], when: () => applied },
-    { node: "done", message: "No changes made.", when: (answers) => fixedMode !== undefined && answers.approved === false },
   ]
   const result = await onboard<Answers>({ name: "Rootine", logo: true, state: false, nodes, env: { ...environment } })
   if (isFailure(result)) {

@@ -80,7 +80,7 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       label: "Approval mode",
       default: "review",
       options: [
-        { value: "review", label: "review" },
+        { value: "review", label: "review", recommended: true },
         { value: "always-ask", label: "always ask" },
         { value: "always-allow", label: "always allow" },
       ],

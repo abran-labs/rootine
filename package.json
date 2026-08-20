@@ -12,7 +12,7 @@
     "smoke:install": "sh scripts/smoke-install.sh"
   },
   "dependencies": {
-    "@abran-labs/onboard-kit": "0.3.6",
+    "@abran-labs/onboard-kit": "0.3.7",
     "@clack/prompts": "^1.7.0"
   },
   "devDependencies": {

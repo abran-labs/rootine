@@ -1,7 +1,7 @@
-import { confirm, intro, outro, select } from "@clack/prompts"
+import { isFailure, onboard, type Node } from "@abran-labs/onboard-kit"
 import { dialogWrapperScript, silentWrapperScript } from "./assets"
 import type { Mode } from "./config"
-import { polkitProblems, probeDependencies } from "./deps"
+import { polkitProblems, polkitRemediationSteps, probeDependencies } from "./deps"
 import { defaultWrapperRun, readConfig, remediatePolkit, runSetup, runUninstall, type SetupResult } from "./install"
 import { rootinePaths, type RootinePaths } from "./paths"
 
@@ -55,30 +55,70 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
 
 
 async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>, environment: Readonly<Record<string, string | undefined>> = process.env): Promise<number> {
-  const report = await remediatePolkit({
-    report: await probeDependencies(environment),
-    environment,
-    confirm: parsed.yes ? async () => true : async (label) => (await confirm({ message: `Polkit is incomplete. Run: ${label}?` })) === true,
-    run: runInherited,
-    log: console.log,
-  })
-  const explicit = parsed.mode !== undefined && parsed.yes
-  const mode = parsed.mode ?? await selectMode()
-  if (mode === undefined) {
-    console.log("Cancelled")
-    return 0
+  if (parsed.mode !== undefined && parsed.yes) {
+    const report = await remediatePolkit({ report: await probeDependencies(environment), environment, confirm: async () => true, run: runInherited, log: console.log })
+    return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log }))
   }
-  const result = explicit
-    ? await runSetup({ mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: defaultWrapperRun(), log: console.log })
-    : await runInteractive(paths, mode, report)
-  return reportResult(result)
-}
 
-async function runInteractive(paths: RootinePaths, mode: Mode, dependencies: import("./deps").RootineDependencyReport): Promise<SetupResult> {
-  intro("rootine setup")
-  const approved = await confirm({ message: `Apply this setup? mode: ${mode}` })
-  if (approved !== true) return { status: "cancelled", changes: [] }
-  return runSetup({ mode, paths, dependencies, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
+  type Answers = { mode?: Mode; approved?: boolean }
+  const initial = await probeDependencies(environment)
+  const problems = polkitProblems(initial)
+  const remediation = polkitRemediationSteps(initial)
+  const fixedMode = parsed.mode
+  let applied = false
+  let report = initial
+  const proceed = (answers: Answers): boolean => fixedMode === undefined || answers.approved === true
+  const nodes: Node<Answers>[] = [
+    { node: "welcome", subtitle: "Safe privileged commands for coding agents." },
+    ...(problems.length === 0 ? [] : [{
+      node: "note" as const,
+      title: "System preparation",
+      body: remediation.length > 0 ? remediation.map((step) => `- ${step.label}`).join("\n") : problems.join("\n"),
+    }]),
+    {
+      node: "choice",
+      id: "mode",
+      label: "Privileged-command mode",
+      default: "review",
+      options: [
+        { value: "review", label: "Review", hint: "sx routine, px sensitive" },
+        { value: "always-ask", label: "Always ask", hint: "px approval every time" },
+        { value: "always-allow", label: "Always allow", hint: "sx runs without prompts" },
+      ],
+      when: () => fixedMode === undefined,
+    },
+    { node: "note", title: "Mode", body: fixedMode ?? "", when: () => fixedMode !== undefined },
+    { node: "summary", title: "Review setup", when: () => fixedMode === undefined },
+    { node: "confirm", id: "approved", label: `Apply ${fixedMode ?? "this"} setup?`, default: true, when: () => fixedMode !== undefined },
+    {
+      node: "task",
+      label: "Preparing system",
+      when: (answers) => problems.length > 0 && proceed(answers),
+      run: async () => {
+        report = await remediatePolkit({ report, environment, confirm: async () => true, run: runInherited, log: () => undefined })
+      },
+    },
+    {
+      node: "task",
+      label: "Installing Rootine",
+      when: proceed,
+      run: async (answers) => {
+        const mode = fixedMode ?? answers.mode
+        if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
+        await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: defaultWrapperRun(), log: () => undefined })
+        applied = true
+      },
+    },
+    { node: "done", message: "Rootine is ready.", next: [{ cmd: "rootine doctor", desc: "verify installation" }], when: () => applied },
+    { node: "done", message: "No changes made.", when: (answers) => fixedMode !== undefined && answers.approved === false },
+  ]
+  const result = await onboard<Answers>({ name: "Rootine", logo: true, state: false, nodes, env: { ...environment } })
+  if (isFailure(result)) {
+    if (result.status === "cancelled") return 0
+    if (result.status === "failed") throw result.error
+    return 1
+  }
+  return 0
 }
 
 function runInherited(command: string, args: readonly string[]): Promise<{ readonly exitCode: number; readonly stderr: string }> {
@@ -86,18 +126,6 @@ function runInherited(command: string, args: readonly string[]): Promise<{ reado
     const child = Bun.spawn({ cmd: [command, ...args], stdio: ["inherit", "inherit", "inherit"] })
     child.exited.then((exitCode) => resolve({ exitCode, stderr: "" }))
   })
-}
-
-async function selectMode(): Promise<Mode | undefined> {
-  const answer = await select({
-    message: "Choose the privileged-command mode",
-    options: [
-      { value: "always-allow", label: "always-allow — sx runs everything as root, no dialog", hint: "yolo" },
-      { value: "review", label: "review — sx for routine safe commands, px (dialog) for sensitive ones" },
-      { value: "always-ask", label: "always-ask — px only; every privileged command asks" },
-    ],
-  })
-  return answer === "always-allow" || answer === "review" || answer === "always-ask" ? answer : undefined
 }
 
 async function doctor(paths: RootinePaths): Promise<number> {
@@ -126,10 +154,25 @@ async function doctor(paths: RootinePaths): Promise<number> {
 }
 
 async function uninstall(paths: RootinePaths, yes: boolean): Promise<number> {
-  const approved = yes || await confirm({ message: "Remove the px/sx wrappers, sudoers entry, agent prompt sections, and rootine config?" }) === true
-  if (!approved) return 0
-  const result = await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log })
-  return reportResult(result)
+  if (yes) return reportResult(await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log }))
+  type Answers = { remove: boolean }
+  let removed = false
+  const result = await onboard<Answers>({
+    name: "Rootine",
+    state: false,
+    nodes: [
+      { node: "welcome", subtitle: "Remove Rootine from this machine." },
+      { node: "confirm", id: "remove", label: "Remove wrappers, sudoers entry, agent prompts, and config?", default: false },
+      { node: "task", label: "Removing Rootine", when: (answers) => answers.remove, run: async () => {
+        await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: () => undefined })
+        removed = true
+      } },
+      { node: "done", message: "Rootine was removed.", when: () => removed },
+      { node: "done", message: "No changes made.", when: (answers) => !answers.remove },
+    ],
+  })
+  if (isFailure(result) && result.status === "failed") throw result.error
+  return isFailure(result) && result.status !== "cancelled" ? 1 : 0
 }
 
 function reportResult(result: SetupResult): number {
@@ -142,7 +185,6 @@ function reportResult(result: SetupResult): number {
     return 0
   }
   for (const change of result.changes) console.log(change)
-  outro("done")
   return 0
 }
 

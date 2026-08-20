@@ -35,4 +35,7 @@ if [ "${ROOTINE_NO_ONBOARD:-0}" = 1 ]; then
   echo "rootine: run \`rootine setup\` to finish onboarding"
   exit 0
 fi
+if [ -r /dev/tty ]; then
+  exec "$TARGET" setup </dev/tty
+fi
 exec "$TARGET" setup

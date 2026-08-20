@@ -14,6 +14,7 @@ export type SetupOptions = {
   readonly dependencies?: RootineDependencyReport
   readonly confirm: (summary: readonly string[]) => Promise<boolean>
   readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>
+  readonly quietRun?: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>
   readonly log: (line: string) => void
 }
 
@@ -33,7 +34,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   if (needsSudoers && report.sudo === undefined) throw new RootineSetupError("sudo is required for sx-based modes (review, always-allow)")
   const sudoersSource = needsSudoers ? sudoersFileSource(username) : undefined
   const current = await readConfig(options.paths.configFile)
-  const sudoersChanged = await sudoersStateChanged(options.paths.sudoersFile, sudoersSource)
+  const sudoersChanged = await sudoersStateChanged(options.paths.sudoersFile, sudoersSource, report.sudo)
   const promptChanges = await Promise.all([promptChanged(options.paths.opencodeAgentFile, promptSection), promptChanged(options.paths.claudeAgentFile, promptSection)])
   const dialogWrapperChanged = await wrapperChanged(options.paths.dialogWrapperFile, dialogWrapperScript())
   const silentWrapperChanged = needsSudoers && await wrapperChanged(options.paths.silentWrapperFile, silentWrapperScript())
@@ -98,7 +99,7 @@ async function applySudoers(options: SetupOptions, source: string, sudo: string)
   const stage = join(dirname(options.paths.configFile), "sudoers.stage")
   await mkdir(dirname(stage), { recursive: true })
   await writeFile(stage, source, { mode: 0o600 })
-  const validate = await options.run("/usr/bin/visudo", ["-cf", stage])
+  const validate = await (options.quietRun ?? options.run)("/usr/bin/visudo", ["-cf", stage])
   if (validate.exitCode !== 0) {
     await rm(stage, { force: true })
     throw new RootineSetupError(`sudoers validation failed: ${validate.stderr.trim()}`)
@@ -194,12 +195,23 @@ async function promptChanged(path: string, section: string): Promise<{ readonly 
   }
 }
 
-async function sudoersStateChanged(sudoersFile: string, source: string | undefined): Promise<boolean> {
-  const file = Bun.file(sudoersFile)
-  const exists = await file.exists()
-  if (source === undefined) return exists
-  if (!exists) return true
-  return await file.text() !== source
+async function sudoersStateChanged(sudoersFile: string, source: string | undefined, sudo: string | undefined): Promise<boolean> {
+  const current = await readSudoersEntry(sudoersFile, sudo)
+  if (source === undefined) return current !== undefined
+  return current !== source
+}
+
+export async function readSudoersEntry(path: string, sudo: string | undefined): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8")
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
+    if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error
+  }
+  if (sudo === undefined) return undefined
+  const child = Bun.spawn([sudo, "-n", "/usr/bin/cat", path], { stdout: "pipe", stderr: "ignore" })
+  const [exitCode, text] = await Promise.all([child.exited, new Response(child.stdout).text()])
+  return exitCode === 0 ? text : undefined
 }
 
 export class RootineSetupError extends Error {

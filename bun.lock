@@ -5,7 +5,7 @@
     "": {
       "name": "rootine",
       "dependencies": {
-        "@abran-labs/onboard-kit": "0.3.3",
+        "@abran-labs/onboard-kit": "0.3.4",
         "@clack/prompts": "^1.7.0",
       },
       "devDependencies": {
@@ -15,7 +15,7 @@
     },
   },
   "packages": {
-    "@abran-labs/onboard-kit": ["@abran-labs/onboard-kit@0.3.3", "", { "peerDependencies": { "@clack/prompts": "^1.7.0" }, "bin": { "onboard-kit": "bin/onboard-kit.mjs" } }, "sha512-/5gCwC9D3H7x5kjFhTN6k0PA4LKZrUTLgJXHIUmu/092RadtwPUtNilGUVvqqyQHnD9wFP89mFqVEJBu1K0rpQ=="],
+    "@abran-labs/onboard-kit": ["@abran-labs/onboard-kit@0.3.4", "", { "peerDependencies": { "@clack/prompts": "^1.7.0" }, "bin": { "onboard-kit": "bin/onboard-kit.mjs" } }, "sha512-KY1TqFf68CojiM+KYsTNLe3DUR8yORL0TMm6hal8Uozu4c0FmJbQtJEVmXMFkmpAJ2npH9kR/EoZUPZLwy0p4g=="],
 
     "@clack/core": ["@clack/core@1.4.3", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-/kr3UWNtdJfxZtPgDqUOmG2pvwlmcLGheex5yiZKdwbzZJxhV+HMNR9QNmyY5cGwTNV6LrR7Jtp+KjhUAP1qBQ=="],
 

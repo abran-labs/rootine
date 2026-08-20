@@ -2,7 +2,7 @@ import { isFailure, onboard, type Node } from "@abran-labs/onboard-kit"
 import { dialogWrapperScript, silentWrapperScript } from "./assets"
 import type { Mode } from "./config"
 import { polkitProblems, polkitRemediationSteps, probeDependencies } from "./deps"
-import { defaultWrapperRun, readConfig, remediatePolkit, runSetup, runUninstall, type SetupResult } from "./install"
+import { defaultWrapperRun, readConfig, readSudoersEntry, remediatePolkit, runSetup, runUninstall, type SetupResult } from "./install"
 import { rootinePaths, type RootinePaths } from "./paths"
 
 const HELP = `Usage:
@@ -57,7 +57,7 @@ export function parseArgs(args: readonly string[]): ParsedArgs {
 async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "setup" }>, environment: Readonly<Record<string, string | undefined>> = process.env): Promise<number> {
   if (parsed.mode !== undefined && parsed.yes) {
     const report = await remediatePolkit({ report: await probeDependencies(environment), environment, confirm: async () => true, run: runInherited, log: console.log })
-    return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: runInherited, log: console.log }))
+    return reportResult(await runSetup({ mode: parsed.mode, paths, dependencies: report, confirm: async (summary) => { printSummary(summary); return true }, run: runInherited, quietRun: defaultWrapperRun(), log: console.log }))
   }
 
   type Answers = { mode?: Mode }
@@ -67,6 +67,8 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
   const fixedMode = parsed.mode
   let applied = false
   let report = initial
+  const installedCli = `${paths.wrapperDir}/rootine`
+  const doctorCommand = await Bun.file(installedCli).exists() ? `${installedCli} doctor` : "bun run src/index.ts doctor"
   const nodes: Node<Answers>[] = [
     { node: "welcome", subtitle: "Safe privileged commands for coding agents." },
     ...(problems.length === 0 ? [] : [{
@@ -90,7 +92,6 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       node: "task",
       label: "Preparing system",
       output: "inherit",
-      elevated: true,
       when: () => problems.length > 0,
       run: async () => {
         report = await remediatePolkit({ report, environment, confirm: async () => true, run: runInherited, log: () => undefined })
@@ -100,15 +101,14 @@ async function setup(paths: RootinePaths, parsed: Extract<ParsedArgs, { kind: "s
       node: "task",
       label: "Installing Rootine",
       output: "inherit",
-      elevated: true,
       run: async (answers) => {
         const mode = fixedMode ?? answers.mode
         if (mode === undefined) throw new RootineCliError("privileged-command mode was not selected")
-        await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: runInherited, log: () => undefined })
+        await runSetup({ mode, paths, dependencies: report, confirm: async () => true, run: runInherited, quietRun: defaultWrapperRun(), log: () => undefined })
         applied = true
       },
     },
-    { node: "done", message: "Rootine is ready.", next: [{ cmd: "rootine doctor", desc: "verify installation" }], when: () => applied },
+    { node: "done", message: "Rootine is ready.", next: [{ cmd: doctorCommand, desc: "verify installation" }], when: () => applied },
   ]
   const result = await onboard<Answers>({ name: "Rootine", logo: true, state: false, nodes, env: { ...environment } })
   if (isFailure(result)) {
@@ -134,7 +134,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
   const silentWrapper = Bun.file(paths.silentWrapperFile)
   const dialogOk = (await dialogWrapper.exists()) && (await dialogWrapper.text()) === dialogWrapperScript()
   const silentOk = (await silentWrapper.exists()) && (await silentWrapper.text()) === silentWrapperScript()
-  const sudoers = Bun.file(paths.sudoersFile)
+  const sudoersPresent = await readSudoersEntry(paths.sudoersFile, report.sudo) !== undefined
   const lines = [
     `platform: ${report.linux ? "linux" : "unsupported"}`,
     `pkexec: ${report.polkit.pkexec ?? "missing"}`,
@@ -144,7 +144,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
     `wrapper px (dialog): ${dialogOk ? `ready (${paths.dialogWrapperFile})` : "missing or stale"}`,
     `wrapper sx (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,
     `config: ${config === undefined ? "missing" : `mode=${config.mode}`}`,
-    `sudoers entry: ${await sudoers.exists() ? "present" : "absent"}`,
+    `sudoers entry: ${sudoersPresent ? "present" : "absent"}`,
     `problems: ${problems.length === 0 ? "none" : problems.join("; ")}`,
   ]
   console.log(lines.join("\n"))

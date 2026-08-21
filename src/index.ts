@@ -1,5 +1,5 @@
 import { isFailure, onboard, type Node } from "@abran-labs/onboard-kit"
-import { dialogWrapperScript, silentWrapperScript } from "./assets"
+import { dialogWrapperScript, silentHelperScript, silentWrapperScript } from "./assets"
 import type { Mode } from "./config"
 import { polkitProblems, polkitRemediationSteps, probeDependencies } from "./deps"
 import { defaultWrapperRun, readConfig, readSudoersEntry, remediatePolkit, runSetup, runUninstall, type SetupResult } from "./install"
@@ -140,8 +140,10 @@ async function doctor(paths: RootinePaths): Promise<number> {
   const dialogWrapper = Bun.file(paths.dialogWrapperFile)
   const silentWrapper = Bun.file(paths.silentWrapperFile)
   const dialogOk = (await dialogWrapper.exists()) && (await dialogWrapper.text()) === dialogWrapperScript()
-  const silentOk = (await silentWrapper.exists()) && (await silentWrapper.text()) === silentWrapperScript()
-  const sudoersPresent = await readSudoersEntry(paths.sudoersFile, report.sudo) !== undefined
+  const silentOk = (await silentWrapper.exists()) && (await silentWrapper.text()) === silentWrapperScript(paths.silentHelperFile)
+  const silentHelper = Bun.file(paths.silentHelperFile)
+  const silentHelperOk = (await silentHelper.exists()) && (await silentHelper.text()) === silentHelperScript()
+  const sudoersPresent = await readSudoersEntry(paths.sudoersFile, report.sudo, paths.silentHelperFile) !== undefined
   const lines = [
     `platform: ${report.linux ? "linux" : "unsupported"}`,
     `pkexec: ${report.polkit.pkexec ?? "missing"}`,
@@ -150,6 +152,7 @@ async function doctor(paths: RootinePaths): Promise<number> {
     `sudo: ${report.sudo ?? "missing"}`,
     `wrapper px (dialog): ${dialogOk ? `ready (${paths.dialogWrapperFile})` : "missing or stale"}`,
     `wrapper sx (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,
+    `sx helper: ${silentHelperOk ? `ready (${paths.silentHelperFile})` : await silentHelper.exists() ? "stale" : "absent"}`,
     `config: ${config === undefined ? "missing" : `mode=${config.mode}`}`,
     `sudoers entry: ${sudoersPresent ? "present" : "absent"}`,
     `problems: ${problems.length === 0 ? "none" : problems.join("; ")}`,

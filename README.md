@@ -18,6 +18,8 @@ curl -fsSL https://github.com/abran-labs/rootine/raw/master/install.sh | bash
 | `always-ask` | Every privileged command requires approval. |
 | `always-allow` | Every privileged command runs immediately. |
 
+Passwordless access is scoped to Rootine's root-owned `sx` helper. Normal `sudo` keeps the system's existing password policy.
+
 ## Commands
 
 ```sh

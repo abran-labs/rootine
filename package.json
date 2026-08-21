@@ -1,6 +1,6 @@
 {
   "name": "rootine",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Linux-only thin polkit wrapper: one px command, one polkit rule, one agent prompt. Pick always-allow, review, or always-ask.",
   "type": "module",
   "scripts": {

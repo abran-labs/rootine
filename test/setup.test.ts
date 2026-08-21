@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { RootineDependencyReport } from "../src/deps"
 import { runSetup, runUninstall } from "../src/install"
 import type { RootinePaths } from "../src/paths"
@@ -27,6 +27,7 @@ function paths(root: string): RootinePaths {
     executableFile: join(root, "bin", "rootine"),
     dialogWrapperFile: join(root, "bin", "px"),
     silentWrapperFile: join(root, "bin", "sx"),
+    silentHelperFile: join(root, "rootine-sx"),
     sudoersFile: join(root, "10-rootine"),
     opencodeAgentFile: join(root, "config", "opencode", "AGENTS.md"),
     claudeAgentFile: join(root, "home", ".claude", "CLAUDE.md"),
@@ -42,6 +43,14 @@ function runner(fake: FakeRun, sudoersFile: string) {
   return async (command: string, args: readonly string[]) => {
     fake.calls.push({ command, args })
     if (fake.failSudoersInstall && args[0] === "/usr/bin/install" && args.includes(sudoersFile)) return { exitCode: 126, stderr: "polkit dialog cancelled" }
+    if (args[0] === "/usr/bin/install") {
+      const source = args.at(-2)!
+      const target = args.at(-1)!
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(source, target)
+      await chmod(target, Number.parseInt(args[args.indexOf("-m") + 1]!, 8))
+    }
+    if (args[0] === "/usr/bin/rm") await Promise.all(args.slice(2).map((path) => rm(path, { force: true })))
     return { exitCode: 0, stderr: "" }
   }
 }
@@ -73,7 +82,9 @@ describe("rootine setup", () => {
     expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("routine and safe")
     // sudoers staged, validated, then installed through terminal sudo
     expect(fake.calls.some((call) => call.command === "/usr/bin/visudo" && call.args[0] === "-cf")).toBe(true)
-    const install = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args[0] === "/usr/bin/install")
+    const helperInstall = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args.includes(paths(root).silentHelperFile))
+    expect(helperInstall?.args).toContain("0755")
+    const install = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args[0] === "/usr/bin/install" && call.args.includes(paths(root).sudoersFile))
     expect(install?.args).toContain(paths(root).sudoersFile)
     expect(install?.command).toBe("/usr/bin/sudo")
   })
@@ -93,10 +104,11 @@ describe("rootine setup", () => {
     temporaryPaths.push(root)
     const fake = fakeRun()
     await runSetup(options(root, "always-allow", fake))
-    await Bun.write(paths(root).sudoersFile, "stale entry\n")
     const result = await runSetup(options(root, "always-ask", fake))
     expect(result.status).toBe("applied")
     expect(await Bun.file(join(root, "bin", "sx")).exists()).toBe(false)
+    expect(await Bun.file(paths(root).silentHelperFile).exists()).toBe(false)
+    expect(await Bun.file(paths(root).sudoersFile).exists()).toBe(false)
     expect(fake.calls.some((call) => call.args[0] === "/usr/bin/rm" && call.args.includes(paths(root).sudoersFile))).toBe(true)
   })
 
@@ -114,6 +126,25 @@ describe("rootine setup", () => {
     expect(second.status).toBe("applied")
     expect(second.changes).toEqual([])
   })
+
+  test("a repeated always-allow setup makes no changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
+    temporaryPaths.push(root)
+    await runSetup(options(root, "always-allow"))
+    const second = await runSetup(options(root, "always-allow"))
+    expect(second.status).toBe("applied")
+    expect(second.changes).toEqual([])
+  })
+
+  test("migrates the legacy unrestricted sudoers rule", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
+    temporaryPaths.push(root)
+    await Bun.write(paths(root).sudoersFile, "abran ALL=(ALL) NOPASSWD: ALL\n")
+    await runSetup(options(root, "always-allow"))
+    const sudoers = await readFile(paths(root).sudoersFile, "utf8")
+    expect(sudoers).toContain(`NOPASSWD: ${paths(root).silentHelperFile} *`)
+    expect(sudoers).not.toContain("NOPASSWD: ALL")
+  })
 })
 
 describe("rootine uninstall", () => {
@@ -123,7 +154,7 @@ describe("rootine uninstall", () => {
     const target = paths(root)
     await mkdir(target.wrapperDir, { recursive: true })
     await mkdir(join(root, "config", "rootine"), { recursive: true })
-    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.sudoersFile, target.configFile]) await Bun.write(path, "installed\n")
+    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.silentHelperFile, target.sudoersFile, target.configFile]) await Bun.write(path, "installed\n")
 
     const result = await runUninstall({
       paths: target,
@@ -131,16 +162,16 @@ describe("rootine uninstall", () => {
       confirm: async () => true,
       run: async (command, args) => {
         expect(command).toBe("/usr/bin/sudo")
-        expect(args).toEqual(["/usr/bin/rm", "-f", target.sudoersFile])
+        expect(args).toEqual(["/usr/bin/rm", "-f", target.sudoersFile, target.silentHelperFile])
         expect(await Bun.file(target.dialogWrapperFile).exists()).toBe(true)
-        await rm(target.sudoersFile, { force: true })
+        await Promise.all([rm(target.sudoersFile, { force: true }), rm(target.silentHelperFile, { force: true })])
         return { exitCode: 0, stderr: "" }
       },
       log: () => undefined,
     })
 
     expect(result.status).toBe("applied")
-    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.sudoersFile, target.configFile]) expect(await Bun.file(path).exists()).toBe(false)
+    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.silentHelperFile, target.sudoersFile, target.configFile]) expect(await Bun.file(path).exists()).toBe(false)
   })
 
   test("keeps user files when sudoers removal fails", async () => {
@@ -148,9 +179,9 @@ describe("rootine uninstall", () => {
     temporaryPaths.push(root)
     const target = paths(root)
     await mkdir(target.wrapperDir, { recursive: true })
-    for (const path of [target.dialogWrapperFile, target.executableFile, target.sudoersFile]) await Bun.write(path, "installed\n")
+    for (const path of [target.dialogWrapperFile, target.executableFile, target.silentHelperFile, target.sudoersFile]) await Bun.write(path, "installed\n")
 
-    await expect(runUninstall({ paths: target, sudo: "/usr/bin/sudo", confirm: async () => true, run: async () => ({ exitCode: 1, stderr: "denied" }), log: () => undefined })).rejects.toThrow("sudoers removal failed")
+    await expect(runUninstall({ paths: target, sudo: "/usr/bin/sudo", confirm: async () => true, run: async () => ({ exitCode: 1, stderr: "denied" }), log: () => undefined })).rejects.toThrow("sudoers/helper removal failed")
     expect(await Bun.file(target.dialogWrapperFile).exists()).toBe(true)
     expect(await Bun.file(target.executableFile).exists()).toBe(true)
   })

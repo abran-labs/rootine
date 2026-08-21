@@ -7,6 +7,7 @@ export type RootinePaths = {
   readonly executableFile: string
   readonly dialogWrapperFile: string
   readonly silentWrapperFile: string
+  readonly silentHelperFile: string
   readonly sudoersFile: string
   readonly opencodeAgentFile: string
   readonly claudeAgentFile: string
@@ -22,6 +23,7 @@ export function rootinePaths(environment: Readonly<Record<string, string | undef
     executableFile: join(wrapperDir, "rootine"),
     dialogWrapperFile: join(wrapperDir, "px"),
     silentWrapperFile: join(wrapperDir, "sx"),
+    silentHelperFile: "/usr/local/libexec/rootine-sx",
     sudoersFile: "/etc/sudoers.d/10-rootine",
     opencodeAgentFile: join(configHome, "opencode", "AGENTS.md"),
     claudeAgentFile: join(home, ".claude", "CLAUDE.md"),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { agentPrompt, dialogWrapperScript, PROMPT_MARKER_END, PROMPT_MARKER_START, silentWrapperScript, sudoersFileSource } from "../src/assets"
+import { agentPrompt, dialogWrapperScript, PROMPT_MARKER_END, PROMPT_MARKER_START, silentHelperScript, silentWrapperScript, sudoersFileSource } from "../src/assets"
 import { parseConfig, RootineConfigError } from "../src/config"
 
 describe("rootine config", () => {
@@ -21,14 +21,19 @@ describe("wrappers", () => {
   })
 
   test("sx never asks and goes through sudo", () => {
-    expect(silentWrapperScript()).toContain('exec sudo -- "$@"')
+    expect(silentWrapperScript()).toContain('exec sudo -- /usr/local/libexec/rootine-sx "$@"')
     expect(silentWrapperScript()).toContain("NO approval dialog")
+  })
+
+  test("root-owned sx helper executes argv without a shell", () => {
+    expect(silentHelperScript()).toContain('exec "$@"')
   })
 })
 
 describe("sudoers entry", () => {
-  test("grants NOPASSWD only for the user", () => {
-    expect(sudoersFileSource("abran")).toContain("abran ALL=(ALL) NOPASSWD: ALL\n")
+  test("grants NOPASSWD only for the sx helper", () => {
+    expect(sudoersFileSource("abran")).toContain("abran ALL=(root) NOPASSWD: /usr/local/libexec/rootine-sx *\n")
+    expect(sudoersFileSource("abran")).not.toContain("NOPASSWD: ALL")
     expect(sudoersFileSource("abran")).toContain("Managed by rootine")
   })
 })

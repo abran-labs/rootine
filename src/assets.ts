@@ -2,6 +2,7 @@ import type { Mode } from "./config"
 
 export const DIALOG_WRAPPER = "px"
 export const SILENT_WRAPPER = "sx"
+export const SILENT_HELPER = "/usr/local/libexec/rootine-sx"
 export const SUDOERS_FILE = "/etc/sudoers.d/10-rootine"
 export const PROMPT_MARKER_START = "<!-- PX_START -->"
 export const PROMPT_MARKER_END = "<!-- PX_END -->"
@@ -19,7 +20,7 @@ exec pkexec --disable-internal-agent "$@"
 `
 }
 
-export function silentWrapperScript(): string {
+export function silentWrapperScript(helper = SILENT_HELPER): string {
   return `#!/bin/sh
 # sx — argv-only privileged runner that never asks (managed by rootine).
 # Silent because of the rootine sudoers entry; there is NO approval dialog.
@@ -28,16 +29,27 @@ if [ $# -lt 1 ]; then
   echo "usage: sx EXECUTABLE [ARG...]" >&2
   exit 2
 fi
-exec sudo -- "$@"
+exec sudo -- ${helper} "$@"
 `
 }
 
-export function sudoersLine(username: string): string {
-  return `${username} ALL=(ALL) NOPASSWD: ALL\n`
+export function silentHelperScript(): string {
+  return `#!/bin/sh
+# Root-owned executor for sx (managed by rootine).
+if [ $# -lt 1 ]; then
+  echo "usage: rootine-sx EXECUTABLE [ARG...]" >&2
+  exit 2
+fi
+exec "$@"
+`
 }
 
-export function sudoersFileSource(username: string): string {
-  return `# Managed by rootine; regenerate with \`rootine setup\`.\n${sudoersLine(username)}`
+export function sudoersLine(username: string, helper = SILENT_HELPER): string {
+  return `${username} ALL=(root) NOPASSWD: ${helper} *\n`
+}
+
+export function sudoersFileSource(username: string, helper = SILENT_HELPER): string {
+  return `# Managed by rootine; regenerate with \`rootine setup\`.\n${sudoersLine(username, helper)}`
 }
 
 export function agentPrompt(mode: Mode): string {

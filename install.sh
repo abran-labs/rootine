@@ -3,7 +3,7 @@
 # its checksum, installs it to ~/.local/bin/rootine, and starts the setup.
 set -eu
 
-ROOTINE_VERSION=${ROOTINE_VERSION:-v0.1.1}
+ROOTINE_VERSION=${ROOTINE_VERSION:-v0.1.2}
 BASE_URL=${ROOTINE_BASE_URL:-https://github.com/abran-labs/rootine/releases/download}
 if [ "$(uname -s)" != Linux ]; then
   echo "rootine: Linux is required" >&2

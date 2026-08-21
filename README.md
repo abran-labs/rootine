@@ -7,7 +7,7 @@
 ## Install
 
 ```sh
-curl -fsSL https://github.com/abran-labs/rootine/raw/main/install.sh | bash
+curl -fsSL https://github.com/abran-labs/rootine/raw/master/install.sh | bash
 ```
 
 ## Approval modes

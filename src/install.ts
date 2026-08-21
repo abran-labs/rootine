@@ -109,19 +109,22 @@ async function applySudoers(options: SetupOptions, source: string, sudo: string)
   if (install.exitCode !== 0) throw new RootineSetupError(`sudoers install failed (dialog cancelled or no agent): ${install.stderr.trim()}`)
 }
 
-export async function runUninstall(options: { readonly paths: RootinePaths; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
-  const confirmed = await options.confirm(["remove wrappers px and sx", "remove sudoers entry (one approval dialog)", "remove agent prompt sections", "remove rootine config"])
+export async function runUninstall(options: { readonly paths: RootinePaths; readonly sudo: string | undefined; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
+  const confirmed = await options.confirm(["remove sudoers entry", "remove wrappers px and sx", "remove agent prompt sections", "remove rootine config", "remove rootine executable"])
   if (!confirmed) return { status: "cancelled", changes: [] }
   const changes: string[] = []
-  for (const wrapper of [options.paths.dialogWrapperFile, options.paths.silentWrapperFile]) {
-    await rm(wrapper, { force: true })
-    changes.push(`wrapper removed: ${wrapper}`)
+  const sudoersPresent = await readSudoersEntry(options.paths.sudoersFile, options.sudo) !== undefined
+  if (sudoersPresent) {
+    if (options.sudo === undefined) throw new RootineSetupError("sudo is required to remove the rootine sudoers entry")
+    const result = await options.run(options.sudo, ["/usr/bin/rm", "-f", options.paths.sudoersFile])
+    if (result.exitCode !== 0) throw new RootineSetupError(`sudoers removal failed: ${result.stderr.trim() || "see output above"}`)
+    changes.push("sudoers entry removed")
   }
-  const sudoers = Bun.file(options.paths.sudoersFile)
-  if (await sudoers.exists()) {
-    const result = await options.run(options.paths.dialogWrapperFile, ["/usr/bin/rm", "-f", options.paths.sudoersFile])
-    if (result.exitCode === 0) changes.push("sudoers entry removed")
-    else options.log(`could not remove sudoers entry: ${result.stderr.trim() || "polkit dialog cancelled or unavailable"}`)
+  for (const wrapper of [options.paths.dialogWrapperFile, options.paths.silentWrapperFile]) {
+    if (await Bun.file(wrapper).exists()) {
+      await rm(wrapper, { force: true })
+      changes.push(`wrapper removed: ${wrapper}`)
+    }
   }
   for (const target of [options.paths.opencodeAgentFile, options.paths.claudeAgentFile]) {
     const result = await removeAgentPrompt(target)
@@ -129,6 +132,10 @@ export async function runUninstall(options: { readonly paths: RootinePaths; read
   }
   await rm(dirname(options.paths.configFile), { recursive: true, force: true })
   changes.push("config removed")
+  if (await Bun.file(options.paths.executableFile).exists()) {
+    await rm(options.paths.executableFile, { force: true })
+    changes.push(`executable removed: ${options.paths.executableFile}`)
+  }
   return { status: "applied", changes }
 }
 

@@ -159,7 +159,8 @@ async function doctor(paths: RootinePaths): Promise<number> {
 }
 
 async function uninstall(paths: RootinePaths, yes: boolean): Promise<number> {
-  if (yes) return reportResult(await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: console.log }))
+  const sudo = await Bun.which("sudo") ?? undefined
+  if (yes) return reportResult(await runUninstall({ paths, sudo, confirm: async () => true, run: runInherited, log: console.log }))
   type Answers = { remove: boolean }
   let removed = false
   const result = await onboard<Answers>({
@@ -167,9 +168,9 @@ async function uninstall(paths: RootinePaths, yes: boolean): Promise<number> {
     state: false,
     nodes: [
       { node: "welcome", subtitle: "Remove Rootine from this machine." },
-      { node: "confirm", id: "remove", label: "Remove wrappers, sudoers entry, agent prompts, and config?", default: false },
-      { node: "task", label: "Removing Rootine", when: (answers) => answers.remove, run: async () => {
-        await runUninstall({ paths, confirm: async () => true, run: defaultWrapperRun(), log: () => undefined })
+      { node: "confirm", id: "remove", label: "Remove Rootine from this machine?", default: false },
+      { node: "task", label: "Removing Rootine", output: "inherit", when: (answers) => answers.remove, run: async () => {
+        await runUninstall({ paths, sudo, confirm: async () => true, run: runInherited, log: () => undefined })
         removed = true
       } },
       { node: "done", message: "Rootine was removed.", when: () => removed },

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { RootineDependencyReport } from "../src/deps"
-import { runSetup } from "../src/install"
+import { runSetup, runUninstall } from "../src/install"
 import type { RootinePaths } from "../src/paths"
 
 const temporaryPaths: string[] = []
@@ -24,6 +24,7 @@ function paths(root: string): RootinePaths {
   return {
     configFile: join(root, "config", "rootine", "config.json"),
     wrapperDir: join(root, "bin"),
+    executableFile: join(root, "bin", "rootine"),
     dialogWrapperFile: join(root, "bin", "px"),
     silentWrapperFile: join(root, "bin", "sx"),
     sudoersFile: join(root, "10-rootine"),
@@ -112,5 +113,45 @@ describe("rootine setup", () => {
     const second = await runSetup(options(root, "always-ask"))
     expect(second.status).toBe("applied")
     expect(second.changes).toEqual([])
+  })
+})
+
+describe("rootine uninstall", () => {
+  test("removes sudoers before user files, including the executable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-uninstall-"))
+    temporaryPaths.push(root)
+    const target = paths(root)
+    await mkdir(target.wrapperDir, { recursive: true })
+    await mkdir(join(root, "config", "rootine"), { recursive: true })
+    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.sudoersFile, target.configFile]) await Bun.write(path, "installed\n")
+
+    const result = await runUninstall({
+      paths: target,
+      sudo: "/usr/bin/sudo",
+      confirm: async () => true,
+      run: async (command, args) => {
+        expect(command).toBe("/usr/bin/sudo")
+        expect(args).toEqual(["/usr/bin/rm", "-f", target.sudoersFile])
+        expect(await Bun.file(target.dialogWrapperFile).exists()).toBe(true)
+        await rm(target.sudoersFile, { force: true })
+        return { exitCode: 0, stderr: "" }
+      },
+      log: () => undefined,
+    })
+
+    expect(result.status).toBe("applied")
+    for (const path of [target.dialogWrapperFile, target.silentWrapperFile, target.executableFile, target.sudoersFile, target.configFile]) expect(await Bun.file(path).exists()).toBe(false)
+  })
+
+  test("keeps user files when sudoers removal fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-uninstall-"))
+    temporaryPaths.push(root)
+    const target = paths(root)
+    await mkdir(target.wrapperDir, { recursive: true })
+    for (const path of [target.dialogWrapperFile, target.executableFile, target.sudoersFile]) await Bun.write(path, "installed\n")
+
+    await expect(runUninstall({ paths: target, sudo: "/usr/bin/sudo", confirm: async () => true, run: async () => ({ exitCode: 1, stderr: "denied" }), log: () => undefined })).rejects.toThrow("sudoers removal failed")
+    expect(await Bun.file(target.dialogWrapperFile).exists()).toBe(true)
+    expect(await Bun.file(target.executableFile).exists()).toBe(true)
   })
 })

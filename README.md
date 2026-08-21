@@ -23,5 +23,5 @@ curl -fsSL https://github.com/abran-labs/rootine/raw/master/install.sh | bash
 ```sh
 rootine setup       # configure approval mode
 rootine doctor      # inspect installation
-rootine uninstall   # remove configuration
+rootine uninstall   # remove Rootine
 ```

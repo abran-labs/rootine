@@ -8,7 +8,7 @@ root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/rootine-install-smoke.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-version=v0.1.0
+version=v$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$root/package.json")
 fixture=$work/release/$version
 mkdir -p "$fixture" "$work/home"
 sh "$root/scripts/build-release.sh" "$work/release-artifacts" >/dev/null

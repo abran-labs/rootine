@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 export type RootinePaths = {
   readonly configFile: string
   readonly wrapperDir: string
+  readonly executableFile: string
   readonly dialogWrapperFile: string
   readonly silentWrapperFile: string
   readonly sudoersFile: string
@@ -18,6 +19,7 @@ export function rootinePaths(environment: Readonly<Record<string, string | undef
   return {
     configFile: join(configHome, "rootine", "config.json"),
     wrapperDir,
+    executableFile: join(wrapperDir, "rootine"),
     dialogWrapperFile: join(wrapperDir, "px"),
     silentWrapperFile: join(wrapperDir, "sx"),
     sudoersFile: "/etc/sudoers.d/10-rootine",

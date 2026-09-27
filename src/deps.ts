@@ -1,3 +1,5 @@
+import type { Mode } from "./config"
+
 export type PolkitStatus = {
   readonly pkexec: string | undefined
   readonly polkitd: boolean
@@ -64,7 +66,13 @@ export function agentPackageForDesktop(desktop: string): string | undefined {
   return undefined
 }
 
-export async function probeDependencies(environment: Readonly<Record<string, string | undefined>> = process.env): Promise<RootineDependencyReport> {
+export async function probeDependencies(environment: Readonly<Record<string, string | undefined>> = process.env, mode: Mode = "review"): Promise<RootineDependencyReport> {
+  if (mode === "always-allow") return {
+    linux: process.platform === "linux",
+    polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "unknown" },
+    sudo: Bun.which("sudo") ?? undefined,
+    desktop: desktopName(environment),
+  }
   const [pkexec, agent, polkitd, packageManager, sudo] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager(), Bun.which("sudo")])
   return {
     linux: process.platform === "linux",
@@ -93,10 +101,11 @@ function installArgs(manager: PolkitStatus["packageManager"], packageName: strin
   }
 }
 
-export function polkitProblems(report: RootineDependencyReport): readonly string[] {
+export function polkitProblems(report: RootineDependencyReport, mode: Mode = "review"): readonly string[] {
   const problems: string[] = []
   if (!report.linux) problems.push("rootine supports Linux only")
   if (!report.linux) return problems
+  if (mode === "always-allow") return problems
   if (report.polkit.pkexec === undefined) problems.push("pkexec is missing (install polkit)")
   else if (!report.polkit.polkitd) problems.push("polkitd is not running")
   if (report.polkit.pkexec !== undefined && !report.polkit.agent) problems.push("no polkit authentication agent detected in this session; the approval dialog will not appear (desktop sessions need a polkit agent)")

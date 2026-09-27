@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { RootineDependencyReport } from "../src/deps"
-import { remediatePolkit } from "../src/install"
+import { remediatePolkit } from "../src/remediation"
 
 const healthy: RootineDependencyReport = {
   linux: true,
@@ -17,6 +17,24 @@ const broken: RootineDependencyReport = {
 }
 
 describe("polkit remediation", () => {
+  test("always-allow skips polkit remediation on a headless host", async () => {
+    // Given a host without polkit.
+    const calls: string[] = []
+    // When preparing always-allow mode.
+    const report = await remediatePolkit({
+      mode: "always-allow",
+      report: broken,
+      environment: {},
+      confirm: async () => { calls.push("confirm"); return true },
+      run: async (command) => { calls.push(command); return { exitCode: 0, stderr: "" } },
+      log: () => undefined,
+      probe: async () => { calls.push("probe"); return healthy },
+    })
+    // Then no installation, confirmation, or reprobe is needed.
+    expect(calls).toEqual([])
+    expect(report).toBe(broken)
+  })
+
   test("does nothing when polkit is complete", async () => {
     const calls: string[] = []
     const report = await remediatePolkit({

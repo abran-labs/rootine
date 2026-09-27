@@ -68,6 +68,37 @@ function options(root: string, mode: "always-allow" | "review" | "always-ask", f
 }
 
 describe("rootine setup", () => {
+  test("always-allow rejects missing sudo before installing files", async () => {
+    // Given a Linux host without sudo.
+    const root = await mkdtemp(join(tmpdir(), "rootine-no-sudo-"))
+    temporaryPaths.push(root)
+    // When silent mode is installed, then its required runner remains mandatory.
+    await expect(runSetup({ ...options(root, "always-allow"), dependencies: { ...healthyDeps, sudo: undefined } })).rejects.toThrow("sudo is required")
+    expect(await Bun.file(paths(root).silentWrapperFile).exists()).toBe(false)
+  })
+
+  test("always-allow installs when the Linux host has no polkit or desktop", async () => {
+    // Given a headless VPS with sudo but no polkit components.
+    const root = await mkdtemp(join(tmpdir(), "rootine-headless-"))
+    temporaryPaths.push(root)
+    const fake = fakeRun()
+    const dependencies: RootineDependencyReport = {
+      linux: true,
+      polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "apt" },
+      sudo: "/usr/bin/sudo",
+      desktop: "",
+    }
+
+    // When silent approval mode is installed.
+    const result = await runSetup({ ...options(root, "always-allow", fake), dependencies })
+
+    // Then silent execution is installed without invoking polkit or a package manager.
+    expect(result.status).toBe("applied")
+    expect(await Bun.file(paths(root).silentWrapperFile).exists()).toBe(true)
+    expect(await Bun.file(paths(root).silentHelperFile).exists()).toBe(true)
+    expect(fake.calls.every((call) => call.command === "/usr/bin/visudo" || call.args[0] === "/usr/bin/install")).toBe(true)
+  })
+
   test("review installs both wrappers, the sudoers entry, and prompts", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-setup-"))
     temporaryPaths.push(root)

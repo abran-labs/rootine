@@ -20,6 +20,8 @@ curl -fsSL https://github.com/abran-labs/rootine/raw/master/install.sh | bash
 
 Passwordless access is scoped to Rootine's root-owned `sx` helper. Normal `sudo` keeps the system's existing password policy.
 
+Use `always-allow` on headless servers: it needs `sudo`, but not polkit or a desktop authentication agent. Setup asks for the mode before checking its dependencies.
+
 ## Commands
 
 ```sh

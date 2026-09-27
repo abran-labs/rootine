@@ -10,6 +10,8 @@
 curl -fsSL https://github.com/abran-labs/rootine/raw/master/install.sh | bash
 ```
 
+The installer configures PATH automatically for Bash and Zsh. Open a new terminal or reconnect SSH afterward so your shell can find `rootine`, `px`, and `sx`.
+
 ## Approval modes
 
 | Mode | Behavior |

@@ -70,9 +70,52 @@ fi
 
 rm -rf "$tmp"
 trap - EXIT HUP INT TERM
+
+add_path() {
+  if [ -f "$1" ] && grep -Fqx '# Rootine PATH' "$1"; then
+    return
+  fi
+  cat >> "$1" <<'EOF'
+
+# Rootine PATH
+case ":${PATH:-}:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin${PATH:+:$PATH}" ;;
+esac
+EOF
+  printf 'rootine: configured PATH in %s\n' "$1" >&2
+}
+
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
-  *) echo "rootine: add $HOME/.local/bin to your PATH" >&2 ;;
+  *)
+    shell_name=${SHELL:-}
+    shell_name=${shell_name##*/}
+    case "$shell_name" in
+      bash)
+        add_path "$HOME/.bashrc"
+        profile="$HOME/.profile"
+        for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+          if [ -f "$candidate" ] && [ -r "$candidate" ]; then
+            profile=$candidate
+            break
+          fi
+        done
+        add_path "$profile"
+        ;;
+      zsh)
+        mkdir -p "${ZDOTDIR:-$HOME}"
+        add_path "${ZDOTDIR:-$HOME}/.zshrc"
+        add_path "${ZDOTDIR:-$HOME}/.zprofile"
+        ;;
+      ''|sh|dash|ksh) add_path "$HOME/.profile" ;;
+      *)
+        printf 'rootine: automatic PATH configuration for %s is not supported; add ~/.local/bin using your shell configuration.\n' "$shell_name" >&2
+        ;;
+    esac
+    export PATH="$HOME/.local/bin${PATH:+:$PATH}"
+    echo 'rootine: current terminal PATH is unchanged; open a new shell or reconnect after configuring PATH.' >&2
+    ;;
 esac
 
 echo "rootine $ROOTINE_VERSION installed"

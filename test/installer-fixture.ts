@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 export const binary = "rootine-linux-x64"
-export const payload = '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/args"\nprintf "%s" "$ROOTINE_VERSION" > "$HOME/version"\n'
+export const payload = '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/args"\nprintf "%s" "$ROOTINE_VERSION" > "$HOME/version"\nprintf "%s" "$PATH" > "$HOME/setup-path"\n'
 export const checksum = (data: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(data).digest("hex")
 
 export async function installerFixture() {
@@ -35,7 +35,7 @@ exec /usr/bin/curl "$@"
     async run(overrides: Readonly<Record<string, string>> = {}, tty = false) {
       const command = `sh "$INSTALLER" > "$OUTPUT" 2>&1`
       const child = Bun.spawn(tty ? ["script", "-qec", 'sh "$INSTALLER"', output] : ["sh", "-c", command], {
-        env: { ...process.env, HOME: home, TMPDIR: root, PATH: `${tools}:/usr/bin:/bin`, ROOTINE_VERSION: "v-test", ROOTINE_BASE_URL: `file://${root}/releases`, ROOTINE_NO_ONBOARD: "1", INSTALLER: join(import.meta.dir, "../install.sh"), OUTPUT: output, REQUESTS: requests, ...overrides },
+        env: { ...process.env, HOME: home, SHELL: "", ZDOTDIR: "", TMPDIR: root, PATH: `${tools}:/usr/bin:/bin`, ROOTINE_VERSION: "v-test", ROOTINE_BASE_URL: `file://${root}/releases`, ROOTINE_NO_ONBOARD: "1", INSTALLER: join(import.meta.dir, "../install.sh"), OUTPUT: output, REQUESTS: requests, ...overrides },
         stdin: "ignore", stdout: "ignore", stderr: "pipe",
       })
       const stderr = await new Response(child.stderr).text()

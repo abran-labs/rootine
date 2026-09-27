@@ -105,7 +105,7 @@ async function applySilentAccess(options: SetupOptions, sudoersSource: string, h
   await writeFile(stage, sudoersSource, { mode: 0o600 })
   await writeFile(helperStage, helperSource, { mode: 0o700 })
   try {
-    const validate = await (options.quietRun ?? options.run)("/usr/bin/visudo", ["-cf", stage])
+    const validate = await (options.quietRun ?? options.run)("visudo", ["-cf", stage])
     if (validate.exitCode !== 0) throw new RootineSetupError(`sudoers validation failed: ${validate.stderr.trim()}`)
     if (installHelper) {
       const helperInstall = await options.run(sudo, ["/usr/bin/install", "-D", "-m", "0755", helperStage, options.paths.silentHelperFile])

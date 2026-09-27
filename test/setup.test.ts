@@ -96,7 +96,7 @@ describe("rootine setup", () => {
     expect(result.status).toBe("applied")
     expect(await Bun.file(paths(root).silentWrapperFile).exists()).toBe(true)
     expect(await Bun.file(paths(root).silentHelperFile).exists()).toBe(true)
-    expect(fake.calls.every((call) => call.command === "/usr/bin/visudo" || call.args[0] === "/usr/bin/install")).toBe(true)
+    expect(fake.calls.every((call) => call.command === "visudo" || call.args[0] === "/usr/bin/install")).toBe(true)
   })
 
   test("review installs both wrappers, the sudoers entry, and prompts", async () => {
@@ -112,7 +112,7 @@ describe("rootine setup", () => {
     expect(await readFile(join(root, "config", "opencode", "AGENTS.md"), "utf8")).toContain("sensitive or destructive")
     expect(await readFile(join(root, "home", ".claude", "CLAUDE.md"), "utf8")).toContain("routine and safe")
     // sudoers staged, validated, then installed through terminal sudo
-    expect(fake.calls.some((call) => call.command === "/usr/bin/visudo" && call.args[0] === "-cf")).toBe(true)
+    expect(fake.calls.some((call) => call.command === "visudo" && call.args[0] === "-cf")).toBe(true)
     const helperInstall = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args.includes(paths(root).silentHelperFile))
     expect(helperInstall?.args).toContain("0755")
     const install = fake.calls.find((call) => call.command === "/usr/bin/sudo" && call.args[0] === "/usr/bin/install" && call.args.includes(paths(root).sudoersFile))
@@ -127,7 +127,7 @@ describe("rootine setup", () => {
     await runSetup(options(root, "always-ask", fake))
     expect(await readFile(join(root, "bin", "px"), "utf8")).toContain("pkexec")
     expect(await Bun.file(join(root, "bin", "sx")).exists()).toBe(false)
-    expect(fake.calls.some((call) => call.command === "/usr/bin/visudo")).toBe(false)
+    expect(fake.calls.some((call) => call.command === "visudo")).toBe(false)
   })
 
   test("switching from always-allow to always-ask removes sx and the sudoers entry", async () => {

@@ -17,22 +17,25 @@ const headless: RootineDependencyReport = {
 }
 
 async function sandbox() {
+  const visudo = Bun.which("visudo")
+  if (visudo === null) throw new Error("CLI tests require visudo from the sudo package")
   const root = await mkdtemp(join(tmpdir(), "rootine-cli-"))
   temporaryPaths.push(root)
   const bin = join(root, "bin")
   const calls = join(root, "calls")
   await mkdir(bin)
   await writeFile(calls, "")
-  for (const command of ["sudo", "pgrep", "busctl"]) {
+  for (const command of ["sudo", "visudo", "pgrep", "busctl"]) {
     const file = join(bin, command)
-    // Fakes record requests only: no packages, real wrappers, or privileged files are touched.
-    await writeFile(file, `#!/bin/sh\nprintf '%s\\n' '${command}' >> "$ROOTINE_TEST_CALLS"\nexit ${command === "sudo" ? 0 : 1}\n`)
+    // Privilege commands are inert; real visudo only validates the temporary policy.
+    const action = command === "visudo" ? 'exec "$ROOTINE_TEST_VISUDO" "$@"' : `exit ${command === "sudo" ? 0 : 1}`
+    await writeFile(file, `#!/bin/sh\nprintf '%s\\n' '${command}' >> "$ROOTINE_TEST_CALLS"\n${action}\n`)
     await chmod(file, 0o755)
   }
   return {
     root,
     calls,
-    env: { HOME: root, XDG_CONFIG_HOME: join(root, ".config"), PATH: bin, SHELL: "/bin/sh", TERM: "xterm-256color", ROOTINE_TEST_CALLS: calls },
+    env: { HOME: root, XDG_CONFIG_HOME: join(root, ".config"), PATH: bin, SHELL: "/bin/sh", TERM: "xterm-256color", ROOTINE_TEST_CALLS: calls, ROOTINE_TEST_VISUDO: visudo },
   }
 }
 
@@ -49,7 +52,7 @@ describe("mode-aware dependencies", () => {
 })
 
 describe("headless CLI", () => {
-  test("noninteractive always-allow installs without running desktop probes", async () => {
+  test("noninteractive always-allow uses visudo from PATH without desktop probes", async () => {
     // Given isolated user paths and inert sudo, with no pkexec on PATH.
     const fixture = await sandbox()
     // When the real CLI runs its noninteractive setup.
@@ -59,7 +62,9 @@ describe("headless CLI", () => {
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
     expect(stdout).toContain("mode: always-allow")
     expect(JSON.parse(await readFile(join(fixture.root, ".config/rootine/config.json"), "utf8"))).toEqual({ version: 1, mode: "always-allow" })
-    expect((await readFile(fixture.calls, "utf8")).split("\n").filter(Boolean).every((call) => call === "sudo")).toBe(true)
+    const calls = (await readFile(fixture.calls, "utf8")).split("\n").filter(Boolean)
+    expect(calls).toContain("visudo")
+    expect(calls.every((call) => call === "sudo" || call === "visudo")).toBe(true)
   })
 
   test("mode selection appears before probes and interactive always-allow skips them", async () => {
@@ -82,7 +87,7 @@ describe("headless CLI", () => {
       expect({ code, output: code === 0 ? "" : output }).toEqual({ code: 0, output: "" })
       expect({ callsAtPrompt, output: callsAtPrompt === undefined ? output : "" }).toEqual({ callsAtPrompt: "", output: "" })
       expect(JSON.parse(await readFile(join(fixture.root, ".config/rootine/config.json"), "utf8"))).toEqual({ version: 1, mode: "always-allow" })
-      expect((await readFile(fixture.calls, "utf8")).split("\n").filter(Boolean).every((call) => call === "sudo")).toBe(true)
+      expect((await readFile(fixture.calls, "utf8")).split("\n").filter(Boolean).every((call) => call === "sudo" || call === "visudo")).toBe(true)
     } finally {
       child.stdin.end()
       child.kill()

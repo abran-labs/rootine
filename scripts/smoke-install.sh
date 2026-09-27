@@ -12,13 +12,14 @@ version=v$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$root/package.json")
 fixture=$work/release/$version
 mkdir -p "$fixture" "$work/home"
 sh "$root/scripts/build-release.sh" "$work/release-artifacts" >/dev/null
-cp "$work/release-artifacts/rootine-linux-x64" "$fixture/"
-(cd "$fixture" && sha256sum rootine-linux-x64 > SHA256SUMS)
+cp "$work/release-artifacts/rootine-linux-x64" "$work/release-artifacts/rootine-linux-x64.gz" "$fixture/"
+(cd "$fixture" && sha256sum rootine-linux-x64 rootine-linux-x64.gz > SHA256SUMS)
 
 HOME="$work/home" ROOTINE_BASE_URL="file://$work/release" ROOTINE_NO_ONBOARD=1 sh "$root/install.sh"
 HOME="$work/home" "$work/home/.local/bin/rootine" doctor >/dev/null
 
-echo corrupted >> "$fixture/rootine-linux-x64"
+echo corrupted >> "$fixture/rootine-linux-x64.gz"
+rm "$work/home/.local/bin/rootine"
 if HOME="$work/home" ROOTINE_BASE_URL="file://$work/release" ROOTINE_NO_ONBOARD=1 sh "$root/install.sh"; then
   echo "smoke: tampered binary was accepted" >&2
   exit 1

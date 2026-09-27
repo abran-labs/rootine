@@ -28,7 +28,8 @@ for binary in "$out/rootine-linux-x64" "$out/rootine-linux-arm64"; do
     echo "release: $binary unexpectedly requires $required" >&2
     exit 1
   fi
+  gzip -n -c "$binary" > "$binary.gz"
 done
-(cd "$out" && sha256sum rootine-linux-x64 rootine-linux-arm64 > SHA256SUMS)
+(cd "$out" && sha256sum rootine-linux-x64 rootine-linux-arm64 rootine-linux-x64.gz rootine-linux-arm64.gz > SHA256SUMS)
 echo "release artifacts in $out:"
 ls -la "$out"

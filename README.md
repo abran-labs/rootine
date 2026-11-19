@@ -22,6 +22,8 @@ The installer configures PATH automatically for Bash and Zsh. Open a new termina
 
 Passwordless access is scoped to Rootine's root-owned `sx` helper. Normal `sudo` keeps the system's existing password policy.
 
+On macOS, `px` approves through the native administrator dialog instead of polkit, so nothing extra is installed. It needs a logged-in GUI session.
+
 Use `always-allow` on headless servers: it needs `sudo`, but not polkit or a desktop authentication agent. Setup asks for the mode before checking its dependencies.
 
 ## Commands

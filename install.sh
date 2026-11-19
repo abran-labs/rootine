@@ -3,19 +3,24 @@
 # its checksum, installs it to ~/.local/bin/rootine, and starts the setup.
 set -eu
 
-ROOTINE_VERSION=${ROOTINE_VERSION:-v0.1.5}
+ROOTINE_VERSION=${ROOTINE_VERSION:-v0.1.6}
 BASE_URL=${ROOTINE_BASE_URL:-https://github.com/abran-labs/rootine/releases/download}
 printf 'rootine: preparing %s...\n' "$ROOTINE_VERSION" >&2
-if [ "$(uname -s)" != Linux ]; then
-  echo "rootine: Linux is required" >&2
-  exit 1
-fi
+case "$(uname -s)" in
+  Linux) OS=linux ;;
+  Darwin) OS=darwin ;;
+  *) echo "rootine: Linux or macOS is required" >&2; exit 1 ;;
+esac
 ARCH=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
+# A Rosetta shell reports x86_64 on Apple silicon; install the native binary.
+if [ "$OS" = darwin ] && [ "$ARCH" = x64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
+  ARCH=arm64
+fi
 case "$ARCH" in
   x64|arm64) ;;
   *) echo "rootine: unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-BIN=rootine-linux-$ARCH
+BIN=rootine-$OS-$ARCH
 TARGET="$HOME/.local/bin/rootine"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rootine-install.XXXXXX")
@@ -35,8 +40,13 @@ awk -v binary="$BIN" '
 raw_hash=$(awk -v name="$BIN" '$2 == name { print $1 }' "$tmp/verified")
 gzip_hash=$(awk -v name="$BIN.gz" '$2 == name { print $1 }' "$tmp/verified")
 
+# macOS ships shasum instead of GNU sha256sum.
 matches() {
-  printf '%s  %s\n' "$1" "$2" | sha256sum -c - >/dev/null 2>&1
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$1" "$2" | sha256sum -c - >/dev/null 2>&1
+  else
+    printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1
+  fi
 }
 
 download() {

@@ -3,14 +3,16 @@ import type { RootineDependencyReport } from "../src/deps"
 import { remediatePolkit } from "../src/remediation"
 
 const healthy: RootineDependencyReport = {
-  linux: true,
+  platform: "linux",
+  osascript: undefined,
   polkit: { pkexec: "/usr/bin/pkexec", polkitd: true, agent: true, packageManager: "pacman" },
   sudo: "/usr/bin/sudo",
   desktop: "Hyprland",
 }
 
 const broken: RootineDependencyReport = {
-  linux: true,
+  platform: "linux",
+  osascript: undefined,
   polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "pacman" },
   sudo: "/usr/bin/sudo",
   desktop: "Hyprland",

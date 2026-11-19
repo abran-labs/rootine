@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { binary, checksum, installerFixture, payload } from "./installer-fixture"
 
@@ -149,12 +149,38 @@ test("release builder preserves raw binaries and includes verified gzip assets",
   const code = await build.exited
   // Then
   expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
-  for (const name of [binary, "rootine-linux-arm64"]) {
+  for (const name of [binary, "rootine-linux-arm64", "rootine-darwin-x64", "rootine-darwin-arm64"]) {
     expect(await readFile(join(out, name), "utf8")).toBe(payload)
     expect(new TextDecoder().decode(Bun.gunzipSync(await readFile(join(out, `${name}.gz`))))).toBe(payload)
   }
   const verify = Bun.spawn(["sha256sum", "-c", "SHA256SUMS"], { cwd: out, stdout: "pipe", stderr: "pipe" })
   const verified = await new Response(verify.stdout).text()
   expect(await verify.exited).toBe(0)
-  expect(verified.match(/: OK/g)).toHaveLength(4)
+  expect(verified.match(/: OK/g)).toHaveLength(8)
+})
+
+test.each([
+  ["x86_64", "0", "rootine-darwin-x64"],
+  ["arm64", "1", "rootine-darwin-arm64"],
+  ["x86_64", "1", "rootine-darwin-arm64"],
+])("macOS %s (arm64 capable=%s) installs %s and verifies with shasum", async (machine, arm64, name) => {
+  // Given a Darwin host whose tools match macOS: shasum, no sha256sum.
+  await using fixture = await installerFixture()
+  const tools = join(fixture.root, "tools")
+  const sha = Bun.which("sha256sum")!
+  await writeFile(join(tools, "uname"), `#!/bin/sh\ncase "$1" in -s) echo Darwin;; -m) echo ${machine};; esac\n`)
+  await writeFile(join(tools, "sysctl"), `#!/bin/sh\necho ${arm64}\n`)
+  await writeFile(join(tools, "shasum"), `#!/bin/sh\n[ "$1 $2" = "-a 256" ] || exit 9\nshift 2\nexec ${sha} "$@"\n`)
+  const bin = join(fixture.root, "bin")
+  await mkdir(bin)
+  for (const command of ["sh", "awk", "sed", "mktemp", "rm", "gzip", "mkdir", "install", "cat", "grep"]) await symlink(Bun.which(command)!, join(bin, command))
+  await Promise.all(["uname", "sysctl", "shasum"].map((tool) => chmod(join(tools, tool), 0o755)))
+  await writeFile(join(fixture.release, name), payload)
+  await fixture.manifest(`${checksum(payload)}  ${name}\n`)
+  // When
+  const result = await fixture.run({ PATH: `${tools}:${bin}` })
+  // Then
+  expect({ code: result.code, output: result.output }).toEqual({ code: 0, output: expect.any(String) })
+  expect(result.requests).toContain(`/v-test/${name}`)
+  expect(await readFile(fixture.target, "utf8")).toBe(payload)
 })

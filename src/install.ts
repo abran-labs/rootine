@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { userInfo } from "node:os"
 import { agentPrompt, dialogWrapperScript, silentHelperScript, silentWrapperScript, sudoersFileSource } from "./assets"
 import { parseConfig, type Mode, type RootineConfig } from "./config"
-import { polkitProblems, probeDependencies, type RootineDependencyReport } from "./deps"
+import { currentPlatform, polkitProblems, probeDependencies, type Platform, type RootineDependencyReport } from "./deps"
 import { type RootinePaths } from "./paths"
 import { removeAgentPrompt, writeAgentPrompt } from "./tool-writers"
 
@@ -29,7 +29,9 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   if (problems.length > 0) throw new RootineSetupError(problems.join("; "))
   const username = options.username ?? userInfo().username
   const config: RootineConfig = { version: 1, mode: options.mode }
-  const promptSection = agentPrompt(config.mode)
+  const promptSection = agentPrompt(config.mode, report.platform)
+  const dialogSource = dialogWrapperScript(report.platform)
+  const tools = systemTools(report.platform)
   const needsSudoers = config.mode !== "always-ask"
   if (needsSudoers && report.sudo === undefined) throw new RootineSetupError("sudo is required for sx-based modes (review, always-allow)")
   const sudoersSource = needsSudoers ? sudoersFileSource(username, options.paths.silentHelperFile) : undefined
@@ -37,7 +39,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const current = await readConfig(options.paths.configFile)
   const sudoersChanged = await sudoersStateChanged(options.paths.sudoersFile, sudoersSource, report.sudo, options.paths.silentHelperFile, current?.mode !== undefined && current.mode !== "always-ask")
   const promptChanges = await Promise.all([promptChanged(options.paths.opencodeAgentFile, promptSection), promptChanged(options.paths.claudeAgentFile, promptSection)])
-  const dialogWrapperChanged = await wrapperChanged(options.paths.dialogWrapperFile, dialogWrapperScript())
+  const dialogWrapperChanged = await wrapperChanged(options.paths.dialogWrapperFile, dialogSource)
   const silentWrapperChanged = needsSudoers && await wrapperChanged(options.paths.silentWrapperFile, silentWrapperScript(options.paths.silentHelperFile))
   const silentHelperChanged = await privilegedFileChanged(options.paths.silentHelperFile, helperSource)
   const summary = [
@@ -55,7 +57,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const changes: string[] = []
   await mkdir(options.paths.wrapperDir, { recursive: true })
   if (dialogWrapperChanged) {
-    await writeFile(options.paths.dialogWrapperFile, dialogWrapperScript(), { mode: 0o755 })
+    await writeFile(options.paths.dialogWrapperFile, dialogSource, { mode: 0o755 })
     changes.push(`wrapper installed: ${options.paths.dialogWrapperFile}`)
   }
   if (silentWrapperChanged === true) {
@@ -71,12 +73,12 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   }
 
   if (sudoersSource !== undefined && helperSource !== undefined && (sudoersChanged || silentHelperChanged)) {
-    await applySilentAccess(options, sudoersSource, helperSource, report.sudo!, sudoersChanged, silentHelperChanged)
+    await applySilentAccess(options, tools, sudoersSource, helperSource, report.sudo!, sudoersChanged, silentHelperChanged)
     if (silentHelperChanged) changes.push(`sx helper installed: ${options.paths.silentHelperFile}`)
     if (sudoersChanged) changes.push(`sudoers entry installed: ${options.paths.sudoersFile}`)
   } else if (sudoersChanged || silentHelperChanged) {
     if (report.sudo === undefined) throw new RootineSetupError("sudo is required to remove sx privileged files")
-    const result = await options.run(report.sudo, ["/usr/bin/rm", "-f", options.paths.sudoersFile, options.paths.silentHelperFile])
+    const result = await options.run(report.sudo, [tools.rm, "-f", options.paths.sudoersFile, options.paths.silentHelperFile])
     if (result.exitCode !== 0) throw new RootineSetupError(`sx privileged-file removal failed: ${result.stderr.trim() || "see output above"}`)
     if (sudoersChanged) changes.push("sudoers entry removed")
     if (silentHelperChanged) changes.push("sx helper removed")
@@ -98,7 +100,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 }
 
 // Stage and validate privileged files before installing root-owned copies.
-async function applySilentAccess(options: SetupOptions, sudoersSource: string, helperSource: string, sudo: string, installSudoers: boolean, installHelper: boolean): Promise<void> {
+async function applySilentAccess(options: SetupOptions, tools: SystemTools, sudoersSource: string, helperSource: string, sudo: string, installSudoers: boolean, installHelper: boolean): Promise<void> {
   const stage = join(dirname(options.paths.configFile), "sudoers.stage")
   const helperStage = join(dirname(options.paths.configFile), "rootine-sx.stage")
   await mkdir(dirname(stage), { recursive: true })
@@ -107,8 +109,12 @@ async function applySilentAccess(options: SetupOptions, sudoersSource: string, h
   try {
     const validate = await (options.quietRun ?? options.run)("visudo", ["-cf", stage])
     if (validate.exitCode !== 0) throw new RootineSetupError(`sudoers validation failed: ${validate.stderr.trim()}`)
+    for (const directory of tools.ensureDirectories ? [dirname(options.paths.silentHelperFile), dirname(options.paths.sudoersFile)] : []) {
+      const created = await options.run(sudo, ["/bin/mkdir", "-p", directory])
+      if (created.exitCode !== 0) throw new RootineSetupError(`could not create ${directory}: ${created.stderr.trim() || "see output above"}`)
+    }
     if (installHelper) {
-      const helperInstall = await options.run(sudo, ["/usr/bin/install", "-D", "-m", "0755", helperStage, options.paths.silentHelperFile])
+      const helperInstall = await options.run(sudo, ["/usr/bin/install", ...tools.installParents, "-m", "0755", helperStage, options.paths.silentHelperFile])
       if (helperInstall.exitCode !== 0) throw new RootineSetupError(`sx helper install failed: ${helperInstall.stderr.trim() || "see output above"}`)
     }
     if (installSudoers) {
@@ -120,7 +126,7 @@ async function applySilentAccess(options: SetupOptions, sudoersSource: string, h
   }
 }
 
-export async function runUninstall(options: { readonly paths: RootinePaths; readonly sudo: string | undefined; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
+export async function runUninstall(options: { readonly paths: RootinePaths; readonly sudo: string | undefined; readonly platform?: Platform; readonly confirm: (summary: readonly string[]) => Promise<boolean>; readonly run: (command: string, args: readonly string[], input?: string) => Promise<{ readonly exitCode: number; readonly stderr: string }>; readonly log: (line: string) => void }): Promise<SetupResult> {
   const confirmed = await options.confirm(["remove sudoers entry", "remove wrappers px and sx", "remove agent prompt sections", "remove rootine config", "remove rootine executable"])
   if (!confirmed) return { status: "cancelled", changes: [] }
   const changes: string[] = []
@@ -128,7 +134,7 @@ export async function runUninstall(options: { readonly paths: RootinePaths; read
   const helperPresent = await Bun.file(options.paths.silentHelperFile).exists()
   if (sudoersPresent || helperPresent) {
     if (options.sudo === undefined) throw new RootineSetupError("sudo is required to remove the rootine sudoers entry")
-    const result = await options.run(options.sudo, ["/usr/bin/rm", "-f", options.paths.sudoersFile, options.paths.silentHelperFile])
+    const result = await options.run(options.sudo, [systemTools(options.platform ?? currentPlatform()).rm, "-f", options.paths.sudoersFile, options.paths.silentHelperFile])
     if (result.exitCode !== 0) throw new RootineSetupError(`sudoers/helper removal failed: ${result.stderr.trim() || "see output above"}`)
     if (sudoersPresent) changes.push("sudoers entry removed")
     if (helperPresent) changes.push("sx helper removed")
@@ -221,9 +227,10 @@ export async function readSudoersEntry(path: string, sudo: string | undefined, h
     if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error
   }
   if (sudo === undefined) return undefined
+  const cat = systemTools(currentPlatform()).cat
   const commands = [
-    ...(helper === undefined ? [] : [[sudo, "-n", "--", helper, "/usr/bin/cat", path]]),
-    [sudo, "-n", "--", "/usr/bin/cat", path],
+    ...(helper === undefined ? [] : [[sudo, "-n", "--", helper, cat, path]]),
+    [sudo, "-n", "--", cat, path],
   ]
   for (const command of commands) {
     const child = Bun.spawn(command, { stdout: "pipe", stderr: "ignore" })
@@ -231,6 +238,15 @@ export async function readSudoersEntry(path: string, sudo: string | undefined, h
     if (exitCode === 0) return text
   }
   return undefined
+}
+
+// macOS ships BSD install (no -D) with rm and cat under /bin; Linux keeps the GNU layout.
+type SystemTools = { readonly rm: string; readonly cat: string; readonly installParents: readonly string[]; readonly ensureDirectories: boolean }
+
+export function systemTools(platform: Platform): SystemTools {
+  return platform === "darwin"
+    ? { rm: "/bin/rm", cat: "/bin/cat", installParents: [], ensureDirectories: true }
+    : { rm: "/usr/bin/rm", cat: "/usr/bin/cat", installParents: ["-D"], ensureDirectories: false }
 }
 
 export class RootineSetupError extends Error {

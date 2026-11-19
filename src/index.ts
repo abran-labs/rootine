@@ -121,19 +121,24 @@ async function doctor(paths: RootinePaths, environment: Readonly<Record<string, 
   const config = await readConfig(paths.configFile)
   const report = await probeDependencies(environment, config?.mode)
   const problems = polkitProblems(report, config?.mode)
-  const polkitRequired = config?.mode !== "always-allow"
+  const darwin = report.platform === "darwin"
+  const polkitRequired = config?.mode !== "always-allow" && !darwin
   const dialogWrapper = Bun.file(paths.dialogWrapperFile)
   const silentWrapper = Bun.file(paths.silentWrapperFile)
-  const dialogOk = (await dialogWrapper.exists()) && (await dialogWrapper.text()) === dialogWrapperScript()
+  const dialogOk = (await dialogWrapper.exists()) && (await dialogWrapper.text()) === dialogWrapperScript(report.platform)
   const silentOk = (await silentWrapper.exists()) && (await silentWrapper.text()) === silentWrapperScript(paths.silentHelperFile)
   const silentHelper = Bun.file(paths.silentHelperFile)
   const silentHelperOk = (await silentHelper.exists()) && (await silentHelper.text()) === silentHelperScript()
   const sudoersPresent = await readSudoersEntry(paths.sudoersFile, report.sudo, paths.silentHelperFile) !== undefined
   const lines = [
-    `platform: ${report.linux ? "linux" : "unsupported"}`,
-    `pkexec: ${polkitRequired ? report.polkit.pkexec ?? "missing" : "not required"}`,
-    `polkitd: ${polkitRequired ? report.polkit.polkitd ? "running" : "not running" : "not required"}`,
-    `polkit agent: ${polkitRequired ? report.polkit.agent ? "detected" : "not detected" : "not required"}`,
+    `platform: ${report.platform}`,
+    ...(darwin
+      ? [`osascript: ${config?.mode === "always-allow" ? "not required" : report.osascript ?? "missing"}`]
+      : [
+          `pkexec: ${polkitRequired ? report.polkit.pkexec ?? "missing" : "not required"}`,
+          `polkitd: ${polkitRequired ? report.polkit.polkitd ? "running" : "not running" : "not required"}`,
+          `polkit agent: ${polkitRequired ? report.polkit.agent ? "detected" : "not detected" : "not required"}`,
+        ]),
     `sudo: ${report.sudo ?? "missing"}`,
     `wrapper px (dialog): ${dialogOk ? `ready (${paths.dialogWrapperFile})` : "missing or stale"}`,
     `wrapper sx (silent): ${silentOk ? `ready (${paths.silentWrapperFile})` : await silentWrapper.exists() ? "stale" : "absent"}`,

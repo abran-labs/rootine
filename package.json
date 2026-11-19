@@ -1,7 +1,7 @@
 {
   "name": "rootine",
-  "version": "0.1.5",
-  "description": "Linux-only thin polkit wrapper: one px command, one polkit rule, one agent prompt. Pick always-allow, review, or always-ask.",
+  "version": "0.1.6",
+  "description": "Thin privileged-command wrapper for Linux (polkit) and macOS (administrator dialog): px and sx commands plus one agent prompt. Pick always-allow, review, or always-ask.",
   "type": "module",
   "scripts": {
     "build": "bun build src/index.ts --target=bun --format=esm --outdir dist",

@@ -12,7 +12,8 @@ afterEach(async () => {
 })
 
 const healthyDeps: RootineDependencyReport = {
-  linux: true,
+  platform: "linux",
+  osascript: undefined,
   polkit: { pkexec: "/usr/bin/pkexec", polkitd: true, agent: true, packageManager: "pacman" },
   sudo: "/usr/bin/sudo",
   desktop: "Hyprland",
@@ -83,7 +84,8 @@ describe("rootine setup", () => {
     temporaryPaths.push(root)
     const fake = fakeRun()
     const dependencies: RootineDependencyReport = {
-      linux: true,
+      platform: "linux",
+  osascript: undefined,
       polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "apt" },
       sudo: "/usr/bin/sudo",
       desktop: "",
@@ -178,6 +180,27 @@ describe("rootine setup", () => {
   })
 })
 
+describe("rootine setup on macOS", () => {
+  test("installs the osascript px and creates parent directories without GNU install -D", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rootine-darwin-"))
+    temporaryPaths.push(root)
+    const fake = fakeRun()
+    const dependencies: RootineDependencyReport = { ...healthyDeps, platform: "darwin", osascript: "/usr/bin/osascript", polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "unknown" } }
+    const base = options(root, "review", fake)
+    const result = await runSetup({ ...base, dependencies, run: async (command, args) => {
+      if (args[0] === "/bin/mkdir") { await mkdir(args.at(-1)!, { recursive: true }); fake.calls.push({ command, args }); return { exitCode: 0, stderr: "" } }
+      return base.run(command, args)
+    } })
+    expect(result.status).toBe("applied")
+    expect(await readFile(paths(root).dialogWrapperFile, "utf8")).toContain("with administrator privileges")
+    expect(await readFile(paths(root).claudeAgentFile, "utf8")).not.toContain("polkit")
+    const installs = fake.calls.filter((call) => call.args[0] === "/usr/bin/install")
+    expect(installs.length).toBe(2)
+    expect(installs.every((call) => !call.args.includes("-D"))).toBe(true)
+    expect(fake.calls.some((call) => call.args[0] === "/bin/mkdir" && call.args.includes(dirname(paths(root).silentHelperFile)))).toBe(true)
+  })
+})
+
 describe("rootine uninstall", () => {
   test("removes sudoers before user files, including the executable", async () => {
     const root = await mkdtemp(join(tmpdir(), "rootine-uninstall-"))
@@ -190,6 +213,7 @@ describe("rootine uninstall", () => {
     const result = await runUninstall({
       paths: target,
       sudo: "/usr/bin/sudo",
+      platform: "linux",
       confirm: async () => true,
       run: async (command, args) => {
         expect(command).toBe("/usr/bin/sudo")
@@ -212,7 +236,7 @@ describe("rootine uninstall", () => {
     await mkdir(target.wrapperDir, { recursive: true })
     for (const path of [target.dialogWrapperFile, target.executableFile, target.silentHelperFile, target.sudoersFile]) await Bun.write(path, "installed\n")
 
-    await expect(runUninstall({ paths: target, sudo: "/usr/bin/sudo", confirm: async () => true, run: async () => ({ exitCode: 1, stderr: "denied" }), log: () => undefined })).rejects.toThrow("sudoers/helper removal failed")
+    await expect(runUninstall({ paths: target, sudo: "/usr/bin/sudo", platform: "linux", confirm: async () => true, run: async () => ({ exitCode: 1, stderr: "denied" }), log: () => undefined })).rejects.toThrow("sudoers/helper removal failed")
     expect(await Bun.file(target.dialogWrapperFile).exists()).toBe(true)
     expect(await Bun.file(target.executableFile).exists()).toBe(true)
   })

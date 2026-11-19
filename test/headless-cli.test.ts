@@ -10,7 +10,8 @@ afterEach(async () => {
 })
 
 const headless: RootineDependencyReport = {
-  linux: true,
+  platform: "linux",
+  osascript: undefined,
   sudo: "/usr/bin/sudo",
   desktop: "",
   polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "apt" },
@@ -45,9 +46,9 @@ describe("mode-aware dependencies", () => {
     expect(polkitProblems(headless, mode)).toContain("pkexec is missing (install polkit)")
   })
 
-  test("always-allow still rejects non-Linux hosts", () => {
-    // Given an unsupported platform, when silent mode is checked, then Linux remains required.
-    expect(polkitProblems({ ...headless, linux: false }, "always-allow")).toEqual(["rootine supports Linux only"])
+  test("always-allow still rejects unsupported hosts", () => {
+    // Given an unsupported platform, when silent mode is checked, then Linux or macOS remains required.
+    expect(polkitProblems({ ...headless, platform: "unsupported" }, "always-allow")).toEqual(["rootine supports Linux and macOS only"])
   })
 })
 

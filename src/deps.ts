@@ -7,9 +7,12 @@ export type PolkitStatus = {
   readonly packageManager: "pacman" | "apt" | "dnf" | "zypper" | "unknown"
 }
 
+export type Platform = "linux" | "darwin" | "unsupported"
+
 export type RootineDependencyReport = {
-  readonly linux: boolean
+  readonly platform: Platform
   readonly polkit: PolkitStatus
+  readonly osascript: string | undefined
   readonly sudo: string | undefined
   readonly desktop: string
 }
@@ -22,7 +25,7 @@ export type RemediationStep = {
 }
 
 export function polkitRemediationSteps(report: RootineDependencyReport): readonly RemediationStep[] {
-  if (!report.linux) return []
+  if (report.platform !== "linux") return []
   const steps: RemediationStep[] = []
   if (report.polkit.pkexec === undefined && report.sudo !== undefined) {
     steps.push({ label: `install polkit (${report.polkit.packageManager})`, command: report.sudo, args: installArgs(report.polkit.packageManager, "polkit") })
@@ -66,20 +69,21 @@ export function agentPackageForDesktop(desktop: string): string | undefined {
   return undefined
 }
 
+export function currentPlatform(platform: string = process.platform): Platform {
+  return platform === "linux" || platform === "darwin" ? platform : "unsupported"
+}
+
+const NO_POLKIT: PolkitStatus = { pkexec: undefined, polkitd: false, agent: false, packageManager: "unknown" }
+
 export async function probeDependencies(environment: Readonly<Record<string, string | undefined>> = process.env, mode: Mode = "review"): Promise<RootineDependencyReport> {
-  if (mode === "always-allow") return {
-    linux: process.platform === "linux",
-    polkit: { pkexec: undefined, polkitd: false, agent: false, packageManager: "unknown" },
-    sudo: Bun.which("sudo") ?? undefined,
-    desktop: desktopName(environment),
-  }
-  const [pkexec, agent, polkitd, packageManager, sudo] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager(), Bun.which("sudo")])
-  return {
-    linux: process.platform === "linux",
-    polkit: { pkexec: pkexec ?? undefined, polkitd, agent, packageManager },
-    sudo: sudo ?? undefined,
-    desktop: desktopName(environment),
-  }
+  const platform = currentPlatform()
+  const sudo = Bun.which("sudo") ?? undefined
+  const desktop = desktopName(environment)
+  // macOS approves px through its native administrator dialog (osascript), so polkit never applies.
+  if (platform === "darwin") return { platform, polkit: NO_POLKIT, osascript: mode === "always-allow" ? undefined : Bun.which("osascript") ?? undefined, sudo, desktop }
+  if (mode === "always-allow") return { platform, polkit: NO_POLKIT, osascript: undefined, sudo, desktop }
+  const [pkexec, agent, polkitd, packageManager] = await Promise.all([Bun.which("pkexec"), probePolkitAgent(), probePolkitd(), detectPackageManager()])
+  return { platform, polkit: { pkexec: pkexec ?? undefined, polkitd, agent, packageManager }, osascript: undefined, sudo, desktop }
 }
 
 function desktopName(environment: Readonly<Record<string, string | undefined>>): string {
@@ -103,9 +107,9 @@ function installArgs(manager: PolkitStatus["packageManager"], packageName: strin
 
 export function polkitProblems(report: RootineDependencyReport, mode: Mode = "review"): readonly string[] {
   const problems: string[] = []
-  if (!report.linux) problems.push("rootine supports Linux only")
-  if (!report.linux) return problems
+  if (report.platform === "unsupported") return ["rootine supports Linux and macOS only"]
   if (mode === "always-allow") return problems
+  if (report.platform === "darwin") return report.osascript === undefined ? ["osascript is missing; the macOS administrator dialog is unavailable"] : problems
   if (report.polkit.pkexec === undefined) problems.push("pkexec is missing (install polkit)")
   else if (!report.polkit.polkitd) problems.push("polkitd is not running")
   if (report.polkit.pkexec !== undefined && !report.polkit.agent) problems.push("no polkit authentication agent detected in this session; the approval dialog will not appear (desktop sessions need a polkit agent)")

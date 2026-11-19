@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the linux release binaries and checksum manifest.
+# Builds the Linux and macOS release binaries and checksum manifest.
 set -eu
 root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd)
 out=${1:-dist-bin}
@@ -22,14 +22,19 @@ rm -rf "$out"
 mkdir -p "$out"
 (cd "$root" && "$compiler" build --compile src/index.ts --target=bun-linux-x64-baseline --outfile "$out/rootine-linux-x64")
 (cd "$root" && "$compiler" build --compile src/index.ts --target=bun-linux-arm64 --outfile "$out/rootine-linux-arm64")
+(cd "$root" && "$compiler" build --compile src/index.ts --target=bun-darwin-x64 --outfile "$out/rootine-darwin-x64")
+(cd "$root" && "$compiler" build --compile src/index.ts --target=bun-darwin-arm64 --outfile "$out/rootine-darwin-arm64")
 for binary in "$out/rootine-linux-x64" "$out/rootine-linux-arm64"; do
   required=$(readelf --version-info "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
   if [ "$required" != GLIBC_2.17 ]; then
     echo "release: $binary unexpectedly requires $required" >&2
     exit 1
   fi
-  gzip -n -c "$binary" > "$binary.gz"
 done
-(cd "$out" && sha256sum rootine-linux-x64 rootine-linux-arm64 rootine-linux-x64.gz rootine-linux-arm64.gz > SHA256SUMS)
+binaries="rootine-linux-x64 rootine-linux-arm64 rootine-darwin-x64 rootine-darwin-arm64"
+for name in $binaries; do
+  gzip -n -c "$out/$name" > "$out/$name.gz"
+done
+(cd "$out" && sha256sum $(for name in $binaries; do printf '%s %s.gz ' "$name" "$name"; done) > SHA256SUMS)
 echo "release artifacts in $out:"
 ls -la "$out"

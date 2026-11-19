@@ -133,7 +133,15 @@ if [ "${ROOTINE_NO_ONBOARD:-0}" = 1 ]; then
   echo "rootine: run \`rootine setup\` to finish onboarding"
   exit 0
 fi
+# macOS cannot poll /dev/tty itself (kqueue rejects it), so keypresses never
+# reach setup; hand it the terminal's real device path instead.
 if [ -r /dev/tty ]; then
-  exec "$TARGET" setup </dev/tty
+  terminal=$(tty <&2 2>/dev/null) || terminal=$(tty <&1 2>/dev/null) || terminal=
+  if [ -z "$terminal" ]; then
+    name=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')
+    case $name in ''|'?'|'??') ;; *) terminal=/dev/$name ;; esac
+  fi
+  case $terminal in /dev/*) [ -r "$terminal" ] || terminal=/dev/tty ;; *) terminal=/dev/tty ;; esac
+  exec "$TARGET" setup <"$terminal"
 fi
 exec "$TARGET" setup
